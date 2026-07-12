@@ -1,0 +1,24 @@
+# Toolchain (downloaded, not tracked)
+tools/
+
+# Godot
+.godot/
+*.import
+export_presets.cfg.bak
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Builds and releases
+build/
+release/*.zip
+
+# Logs that are machine-generated
+logs/launcher.log
+logs/bash_commands.log
+
+# OS noise
+Thumbs.db
+Desktop.ini
