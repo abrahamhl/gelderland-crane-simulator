@@ -1,0 +1,90 @@
+{
+  "all_ok": true,
+  "checks": [
+    {
+      "detail": "rig.powered=false at first tick",
+      "id": "unpowered_start",
+      "ok": true
+    },
+    {
+      "detail": "bridge_x 10.000000000 vs 10.000000000 after 70 ticks of input while unpowered",
+      "id": "no_motion_before_inspection",
+      "ok": true
+    },
+    {
+      "detail": "powered=true after checks 1-3",
+      "id": "inspection_enables_power",
+      "ok": true
+    },
+    {
+      "detail": "bridge_x 10.000 -> 11.044",
+      "id": "bridge_responds",
+      "ok": true
+    },
+    {
+      "detail": "trolley_z 9.000 -> 9.902",
+      "id": "trolley_responds",
+      "ok": true
+    },
+    {
+      "detail": "cable 5.000 m -> 5.700 m",
+      "id": "hoist_extends",
+      "ok": true
+    },
+    {
+      "detail": "cable 5.700 m -> 5.000 m",
+      "id": "hoist_retracts",
+      "ok": true
+    },
+    {
+      "detail": "max swing 12.87 deg during coast window",
+      "id": "load_swings",
+      "ok": true
+    },
+    {
+      "detail": "rows 721 -> 961 over 240 ticks",
+      "id": "telemetry_updates",
+      "ok": true
+    },
+    {
+      "detail": "cable visual 5.010 m vs sim 5.010 m",
+      "id": "cable_visible_matches",
+      "ok": true
+    },
+    {
+      "detail": "HUD 451 chars, bilingual labels present",
+      "id": "hud_populated_bilingual",
+      "ok": true
+    },
+    {
+      "detail": "enabled=true, peak applied wind 8.31 m/s",
+      "id": "wind_applied",
+      "ok": true
+    },
+    {
+      "detail": "mean lateral offset -0.0542 m (no wind) -> 0.0511 m (wind toward +Z)",
+      "id": "wind_changes_behaviour",
+      "ok": true
+    },
+    {
+      "detail": "orbited=true, transform restored=true",
+      "id": "camera_reset",
+      "ok": true
+    },
+    {
+      "detail": "pass A hash da72cb6efc291dc441ff15ca4680f571 (382 ticks) vs pass B hash da72cb6efc291dc441ff15ca4680f571 (382 ticks)",
+      "id": "reset_deterministic",
+      "ok": true
+    },
+    {
+      "detail": "0 non-finite observations, halted=false",
+      "id": "no_nan_or_infinity",
+      "ok": true
+    }
+  ],
+  "date": "2026-07-17",
+  "godot": "4.6.3-stable (official)",
+  "passed": 16,
+  "suite": "slice001_scene_selftest",
+  "total": 16
+}

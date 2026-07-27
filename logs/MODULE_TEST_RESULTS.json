@@ -1,0 +1,45 @@
+{
+  "all_ok": true,
+  "date": "2026-07-17",
+  "godot": "4.6.3-stable (official)",
+  "passed": 7,
+  "suite": "slice001_module_tests",
+  "tests": [
+    {
+      "detail": "T(4m)=4.0188 s, T(8m)=5.6834 s",
+      "id": "longer_cable_longer_period",
+      "ok": true
+    },
+    {
+      "detail": "T(4m) vs 2*PI*sqrt(L/g)=4.0128 s (err 0.15%); T8/T4=1.4142 vs sqrt(2) (err 0.00%)",
+      "id": "period_matches_theory",
+      "ok": true
+    },
+    {
+      "detail": "hash A=a5aa33c4e1fcc06030e0d0fae6c6734d, hash B=a5aa33c4e1fcc06030e0d0fae6c6734d",
+      "id": "seeded_run_deterministic",
+      "ok": true
+    },
+    {
+      "detail": "wind hash=a5aa33c4e1fcc06030e0d0fae6c6734d vs no-wind hash=ef6d8508b09600fd9ef25ec41159af66",
+      "id": "wind_changes_trajectory",
+      "ok": true
+    },
+    {
+      "detail": "no-wind hashes across different seeds: ef6d8508b09600fd9ef25ec41159af66 vs ef6d8508b09600fd9ef25ec41159af66",
+      "id": "zero_wind_deterministic",
+      "ok": true
+    },
+    {
+      "detail": "mean x offset: 0.000000 m (no wind) vs 0.1149 m (8 m/s wind +X)",
+      "id": "wind_causes_lateral_displacement",
+      "ok": true
+    },
+    {
+      "detail": "0 non-finite observations over 3600 steps (slack/shock + gusts + hoist sweep)",
+      "id": "no_nan_or_infinity_under_stress",
+      "ok": true
+    }
+  ],
+  "total": 7
+}

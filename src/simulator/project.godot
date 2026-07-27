@@ -1,0 +1,30 @@
+; Engine configuration file.
+; Gelderland Operator Academy — Slice 001 (overhead crane, prefab hall + yard)
+config_version=5
+
+[application]
+
+config/name="Gelderland Operator Academy"
+config/description="Evidence-driven crane operator training simulator. Training aid only — not a legal certificate (TCVT/VCA/driving licence)."
+run/main_scene="res://slice_overhead/main.tscn"
+config/icon="res://icon.svg"
+
+[autoload]
+
+Loc="*res://core/loc.gd"
+AppSettings="*res://core/settings.gd"
+InputConfig="*res://core/input_config.gd"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+common/physics_ticks_per_second=60
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=1

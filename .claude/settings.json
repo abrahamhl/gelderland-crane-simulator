@@ -14,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_tool.py\""
+            "command": "uv run --no-project python \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_tool.py\""
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_bash.py\""
+            "command": "uv run --no-project python \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_bash.py\""
           }
         ]
       }
