@@ -1,12 +1,13 @@
 extends Node3D
 ## Slice 001 — overhead-crane playable proof (prefab hall, Gelderland).
-## Orchestrator: world geometry, on-foot player, crane cabin access, camera
-## director, HUD/tutorial and the SC-001 pickup/drop-off objective are all
-## composed here from separate, mostly-unit-testable modules. The four
+## Orchestrator: world geometry, on-foot player, pendant-control access,
+## camera director, HUD/tutorial and the SC-001 pickup/drop-off objective are
+## all composed here from separate, mostly-unit-testable modules. The four
 ## original physics modules (CraneRig, CableLoadSim, WindModel, Telemetry)
-## are wired in unchanged — see DECISIONS.md DEC-005..DEC-009 for the H1
-## design choices (fixed cabin, always-advancing wind, R resets the machine
-## not the operator's position, etc).
+## are wired in unchanged — see DECISIONS.md DEC-005..DEC-014 for the design
+## choices (pendant control station on the floor — not a cabin, per DEC-014 —
+## always-advancing wind, R resets the machine not the operator's position,
+## externally-applied bounce physics on structure contact, etc).
 
 const CraneRigScript := preload("res://core/crane_rig.gd")
 const CableLoadSimScript := preload("res://core/cable_load_sim.gd")
@@ -22,8 +23,6 @@ const TutorialGuideScript := preload("res://core/tutorial_guide.gd")
 const HudScript := preload("res://core/hud.gd")
 
 const SCENARIO_PATH := "res://scenarios/SC-001_palet_500kg.json"
-const LADDER_BOTTOM := Vector3(2.35, 0.3, 1.3)
-const LADDER_TOP := Vector3(2.0, 8.7, 1.8)
 
 const DT := 1.0 / 60.0
 const SUBSTEPS := 2              # cable sim runs at 120 Hz inside the 60 Hz tick
@@ -51,8 +50,10 @@ var scenario: Dictionary
 var _prev_action := {}
 var _prev_floor_contact := false
 var _prev_column_contact := false
+var _prev_near_miss := false
 var _tick_collisions := 0
 var _tick_violations := 0
+var _tick_near_misses := 0
 
 
 func _ready() -> void:
@@ -80,7 +81,6 @@ func _ready() -> void:
 
 	cam = CameraDirectorScript.new()
 	cam.player = player
-	cam.in_cabin_getter = Callable(access, "is_in_cabin")
 	add_child(cam)
 
 	hud = HudScript.new()
@@ -99,9 +99,9 @@ func _ready() -> void:
 
 func _physics_process(_delta: float) -> void:
 	access.update(DT, player.global_position, AppSettings.ACCESS_POINT,
-		AppSettings.ACCESS_RADIUS_M, AppSettings.CLIMB_DURATION_S)
+		AppSettings.ACCESS_RADIUS_M)
 	_handle_discrete_actions()
-	_drive_player_or_climb()
+	_drive_player()
 
 	if halted:
 		return
@@ -109,7 +109,7 @@ func _physics_process(_delta: float) -> void:
 	var cmd_bridge := 0.0
 	var cmd_trolley := 0.0
 	var cmd_hoist := 0.0
-	if access.is_in_cabin():
+	if access.is_controlling():
 		cmd_bridge = Input.get_axis("bridge_back", "bridge_fwd")
 		cmd_trolley = Input.get_axis("trolley_left", "trolley_right")
 		cmd_hoist = Input.get_axis("hoist_up", "hoist_down")
@@ -137,12 +137,15 @@ func _physics_process(_delta: float) -> void:
 	telemetry.record(elapsed_ticks * DT, sim.load_pos, sim.support_pos,
 		sim.tension, rad_to_deg(sim.swing_angle_rad()), applied_wind)
 
+	_resolve_load_impacts()
 	load_body.sync_to_sim(sim.load_pos)
-	_check_structure_contacts()
+	_check_near_miss()
 	objectives.update(DT, sim.load_pos.x, sim.load_pos.z, _load_bottom_height(),
-		rad_to_deg(sim.swing_angle_rad()), _tick_collisions, _tick_violations)
+		rad_to_deg(sim.swing_angle_rad()), _tick_collisions, _tick_violations,
+		_tick_near_misses)
 	_tick_collisions = 0
 	_tick_violations = 0
+	_tick_near_misses = 0
 
 
 func _process(delta: float) -> void:
@@ -196,7 +199,7 @@ func _edge(action: String) -> bool:
 
 
 func _handle_discrete_actions() -> void:
-	if access.is_in_cabin():
+	if access.is_controlling():
 		for i in 3:
 			if _edge("inspect_%d" % (i + 1)):
 				inspection[i] = true
@@ -220,23 +223,18 @@ func _handle_discrete_actions() -> void:
 			if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
 	if _edge("interact") and access.state == access.State.IN_ZONE:
 		access.try_interact()
-	if _edge("exit_cabin") and access.is_in_cabin():
+	if _edge("exit_cabin") and access.is_controlling():
 		access.try_exit()
 	if _edge("sim_reset"):
 		_reset_all()
 
 
-func _drive_player_or_climb() -> void:
-	if access.is_climbing():
+## Pendant-operated crane: picking up the control box is instant (DEC-014),
+## so there is no climb to drive — just freeze the player in place while
+## controlling (they're standing still holding the pendant) or let them walk.
+func _drive_player() -> void:
+	if access.is_controlling():
 		player.move_enabled = false
-		var t: float = access.climb_progress()
-		player.global_position = LADDER_BOTTOM.lerp(LADDER_TOP, t) if access.climbing_up() \
-			else LADDER_TOP.lerp(LADDER_BOTTOM, t)
-		player.velocity = Vector3.ZERO
-		return
-	if access.is_in_cabin():
-		player.move_enabled = false
-		player.global_position = LADDER_TOP
 		player.velocity = Vector3.ZERO
 		return
 	player.move_enabled = true
@@ -267,35 +265,80 @@ func _reset_all() -> void:
 	halted = false
 	_prev_floor_contact = false
 	_prev_column_contact = false
+	_prev_near_miss = false
 	objectives.load_scenario(scenario)
 	cam.reset_orbit()
 
 
 # --- structure / player collision -----------------------------------------
 
+## The box's true centre: sim.load_pos is the cable-ATTACHMENT point, 0.5 m
+## above the visual box centre (matches world.load_box's offset in
+## _sync_visuals). Every contact/impact check must use this, not load_pos
+## directly — an earlier version of this file passed load_pos straight into
+## the floor/column checks, which was silently wrong by 0.5 m.
+func _load_box_center() -> Vector3:
+	return sim.load_pos - Vector3(0.0, 0.5, 0.0)
+
+
 func _load_bottom_height() -> float:
-	return sim.load_pos.y - 0.95  # load_pos is the cable attachment point
+	return _load_box_center().y - LoadBodyScript.LOAD_SIZE.y * 0.5
 
 
-func _check_structure_contacts() -> void:
-	var floor_hit: bool = LoadBodyScript.check_floor_contact(sim.load_pos)
-	var column_hit: bool = LoadBodyScript.check_column_contact(sim.load_pos, world.columns)
+## Bounces the load off the floor/a column by directly correcting
+## sim.load_pos/load_vel after this tick's integration — an external
+## correction layered on top of the trusted free-swing integrator, which is
+## never modified (DEC-009, DEC-014). Quick taps vs. sustained thrust still
+## produce different momentum through the cable dynamics as before; this only
+## adds what happens when the load actually meets something solid.
+func _resolve_load_impacts() -> void:
+	var box_center := _load_box_center()
+
+	var floor_hit: bool = LoadBodyScript.check_floor_contact(box_center)
+	if floor_hit:
+		var r: Dictionary = LoadBodyScript.resolve_floor_contact(box_center, sim.load_vel,
+			AppSettings.IMPACT_RESTITUTION, AppSettings.IMPACT_DAMPING)
+		sim.load_pos = r.center + Vector3(0.0, 0.5, 0.0)
+		sim.load_vel = r.vel
+		box_center = r.center
 	if floor_hit and not _prev_floor_contact:
 		_tick_collisions += 1
 		_tick_violations += 1
 		load_body.hits_count += 1
 		load_body.violations_count += 1
+		hud.flash_impact("impact_floor")
+	_prev_floor_contact = floor_hit
+
+	var column_hit: bool = LoadBodyScript.check_column_contact(box_center, world.columns)
+	if column_hit:
+		var r: Dictionary = LoadBodyScript.resolve_column_contact(box_center, sim.load_vel,
+			world.columns, AppSettings.IMPACT_RESTITUTION, AppSettings.IMPACT_DAMPING)
+		sim.load_pos = r.center + Vector3(0.0, 0.5, 0.0)
+		sim.load_vel = r.vel
 	if column_hit and not _prev_column_contact:
 		_tick_collisions += 1
 		_tick_violations += 1
 		load_body.hits_count += 1
 		load_body.violations_count += 1
-	_prev_floor_contact = floor_hit
+		hud.flash_impact("impact_column")
 	_prev_column_contact = column_hit
 
 
+## Near-miss: the player is within the load's caution radius but not
+## actually touching it — a distinct, lighter volume from the exact contact
+## box above (.claude/rules/simulation-physics.md).
+func _check_near_miss() -> void:
+	var near: bool = LoadBodyScript.is_within_safety_radius(_load_box_center(),
+		player.global_position, AppSettings.LOAD_SAFETY_RADIUS_M)
+	if near and not _prev_near_miss:
+		_tick_near_misses += 1
+		load_body.near_miss_count += 1
+		hud.flash_caution()
+	_prev_near_miss = near
+
+
 func _on_load_hit_player(push_velocity: Vector3) -> void:
-	if access.is_in_cabin():
+	if access.is_controlling():
 		return
 	_tick_collisions += 1
 	_tick_violations += 1
@@ -355,7 +398,7 @@ func _update_hud(delta: float) -> void:
 		"wind_speed": applied_wind.length(),
 		"pickup_zone": AppSettings.PICKUP_ZONE,
 		"dropoff_zone": AppSettings.DROPOFF_ZONE,
-		"in_cabin": access.is_in_cabin(),
+		"controlling": access.is_controlling(),
 		"player_xz": Vector2(player.global_position.x, player.global_position.z),
 		"tutorial_text": _tutorial_text(),
 		"objective_text": "%s\n%s" % [_scenario_text(scenario.get("title", {})),
@@ -374,8 +417,8 @@ func _obj_phase_text() -> String:
 
 # --- accessors used by the self-test driver --------------------------------
 
-func is_in_cabin() -> bool:
-	return access.is_in_cabin()
+func is_controlling() -> bool:
+	return access.is_controlling()
 
 
 func get_camera_transform() -> Transform3D:

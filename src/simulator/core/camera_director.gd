@@ -1,8 +1,10 @@
 extends Node3D
-## CameraDirector — five viewpoints on one Camera3D, switched by mode.
-## HOME resolves to CABIN or WALK automatically depending on whether the
-## player is currently in the crane cabin. Tab cycles the "away" views
-## (orbit / hook / top-down); C returns to HOME and resets the orbit rig.
+## CameraDirector — four viewpoints on one Camera3D, switched by mode.
+## HOME is always first-person from the player's own eyes: this crane is
+## pendant-operated from the factory floor, so "operating" and "walking" are
+## the same physical situation, just with different key bindings active (see
+## DECISIONS.md DEC-014). Tab cycles the "away" views (orbit / hook /
+## top-down); C returns to HOME and resets the orbit rig.
 
 enum Mode { HOME, ORBIT, HOOK, TOPDOWN }
 
@@ -20,7 +22,6 @@ var orbit_dist := 0.0
 var player: Node3D           # PlayerController
 var rig: RefCounted          # CraneRig
 var sim: RefCounted          # CableLoadSim
-var in_cabin_getter: Callable
 
 
 func _ready() -> void:
@@ -53,7 +54,7 @@ func active_view_name() -> String:
 		return "hook"
 	if mode == Mode.TOPDOWN:
 		return "topdown"
-	return "cabin" if in_cabin_getter.call() else "walk"
+	return "walk"
 
 
 func update(delta: float) -> void:
@@ -65,20 +66,11 @@ func update(delta: float) -> void:
 		Mode.TOPDOWN:
 			_update_topdown()
 		_:
-			if in_cabin_getter.call():
-				_update_cabin()
-			else:
-				_update_walk()
+			_update_walk()
 
 
 func _update_walk() -> void:
 	camera.global_transform = player.eye_transform()
-
-
-func _update_cabin() -> void:
-	camera.global_transform = Transform3D(Basis(), AppSettings.CABIN_ANCHOR)
-	var look_at_pos: Vector3 = sim.load_pos if sim != null else rig.support_point()
-	camera.look_at(look_at_pos, Vector3.UP)
 
 
 func _update_orbit(delta: float) -> void:

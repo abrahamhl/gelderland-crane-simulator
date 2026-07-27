@@ -1,19 +1,25 @@
 extends Area3D
 ## LoadBody — the collision surface for the suspended load. Position always
 ## FOLLOWS cable_load_sim's math (the sim keeps authority over the physics);
-## this node exists only to detect contact against the player and structure,
-## per .claude/rules/simulation-physics.md: "separate physical collision
-## volumes from safety/near-miss volumes." The push/violation math is exposed
-## as static pure functions so it is unit-testable without a scene.
+## contact resolution is applied EXTERNALLY by main.gd, which writes a
+## corrected sim.load_pos/load_vel back after each tick — the validated
+## free-swing integrator in cable_load_sim.gd is never modified (DEC-009,
+## DEC-014). Per .claude/rules/simulation-physics.md: "separate physical
+## collision volumes from safety/near-miss volumes" — see LOAD_SAFETY_RADIUS_M
+## for the larger caution zone, distinct from the exact contact box below.
+##
+## All contact/impact math is exposed as static pure functions, unit-tested
+## in tests/module_tests.gd without a scene. Every function here that takes a
+## "box_center" expects the LOAD'S VISUAL BOX CENTRE (sim.load_pos - (0,0.5,0)
+## in this slice's geometry), NOT the raw cable-attachment point.
 
 signal player_hit(push_velocity: Vector3)
-signal structure_hit(kind: String)
 
 const LOAD_SIZE := Vector3(1.2, 0.9, 1.2)
 
 var hits_count := 0
 var violations_count := 0
-var _last_player_contact_frame := -1
+var near_miss_count := 0
 
 
 func _ready() -> void:
@@ -27,6 +33,8 @@ func _ready() -> void:
 	body_entered.connect(_on_body_entered)
 
 
+## load_pos: the sim's raw cable-attachment point (NOT the box centre — this
+## function applies the same -0.5y offset main.gd uses for the visual mesh).
 func sync_to_sim(load_pos: Vector3) -> void:
 	global_position = load_pos + Vector3(0.0, -0.5, 0.0)
 
@@ -70,14 +78,68 @@ static func aabb_overlap(pos_a: Vector3, size_a: Vector3, pos_b: Vector3, size_b
 
 
 ## Load resting/crashing on the hall floor (floor top at y=0).
-static func check_floor_contact(load_pos: Vector3) -> bool:
-	return (load_pos.y - LOAD_SIZE.y * 0.5) <= 0.0
+static func check_floor_contact(box_center: Vector3) -> bool:
+	return (box_center.y - LOAD_SIZE.y * 0.5) <= 0.0
 
 
 ## Load swung into a column. `columns` is the Array of {pos, size} produced
 ## by WorldBuilder.
-static func check_column_contact(load_pos: Vector3, columns: Array) -> bool:
+static func check_column_contact(box_center: Vector3, columns: Array) -> bool:
 	for c in columns:
-		if aabb_overlap(load_pos, LOAD_SIZE, c.pos, c.size):
+		if aabb_overlap(box_center, LOAD_SIZE, c.pos, c.size):
 			return true
 	return false
+
+
+## True if `pos` (player position, any point on their body) is within the
+## load's caution radius but NOT necessarily touching it — the near-miss
+## volume from .claude/rules/simulation-physics.md, kept separate from the
+## exact contact box above.
+static func is_within_safety_radius(box_center: Vector3, pos: Vector3, radius: float) -> bool:
+	return box_center.distance_to(pos) <= radius
+
+
+## Bounces the load off the floor: clamps it to sit exactly on the surface
+## and reflects the downward velocity with restitution/damping. Returns
+## {hit, center, vel} — `center` is the corrected BOX CENTRE, `vel` the
+## corrected load_vel; caller only needs to act when `hit` is true.
+static func resolve_floor_contact(box_center: Vector3, load_vel: Vector3,
+		restitution: float, damping: float) -> Dictionary:
+	var floor_gap := box_center.y - LOAD_SIZE.y * 0.5
+	if floor_gap > 0.0 or load_vel.y >= 0.0:
+		return {"hit": false, "center": box_center, "vel": load_vel}
+	var center := box_center
+	center.y -= floor_gap  # push back up to exactly touching
+	var vel := load_vel
+	vel.y = -vel.y * restitution
+	vel.x *= damping
+	vel.z *= damping
+	return {"hit": true, "center": center, "vel": vel}
+
+
+## Bounces the load off the first overlapping column: pushes it out along the
+## axis of least penetration and reflects that velocity component.
+static func resolve_column_contact(box_center: Vector3, load_vel: Vector3,
+		columns: Array, restitution: float, damping: float) -> Dictionary:
+	var half_a := LOAD_SIZE * 0.5
+	for c in columns:
+		var half_b: Vector3 = c.size * 0.5
+		var delta: Vector3 = box_center - c.pos
+		if not aabb_overlap(box_center, LOAD_SIZE, c.pos, c.size):
+			continue
+		var overlap_x: float = (half_a.x + half_b.x) - absf(delta.x)
+		var overlap_z: float = (half_a.z + half_b.z) - absf(delta.z)
+		var center := box_center
+		var vel := load_vel
+		if overlap_x < overlap_z:
+			var sign_x := 1.0 if delta.x >= 0.0 else -1.0
+			center.x = c.pos.x + sign_x * (half_a.x + half_b.x)
+			vel.x = -vel.x * restitution
+			vel.z *= damping
+		else:
+			var sign_z := 1.0 if delta.z >= 0.0 else -1.0
+			center.z = c.pos.z + sign_z * (half_a.z + half_b.z)
+			vel.z = -vel.z * restitution
+			vel.x *= damping
+		return {"hit": true, "center": center, "vel": vel}
+	return {"hit": false, "center": box_center, "vel": load_vel}

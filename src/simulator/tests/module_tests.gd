@@ -29,6 +29,8 @@ func _initialize() -> void:
 	_test_tutorial_guide_steps()
 	_test_machine_access_state_machine()
 	_test_load_body_collision_math()
+	_test_load_body_impact_response()
+	_test_load_safety_radius()
 
 	var all_ok := true
 	for r in results:
@@ -237,12 +239,10 @@ func _test_tutorial_guide_steps() -> void:
 	var cases := [
 		[{"access_state": "outside"}, "prompt_approach"],
 		[{"access_state": "in_zone"}, "prompt_in_zone"],
-		[{"access_state": "climbing_up"}, "prompt_climbing"],
-		[{"access_state": "climbing_down"}, "prompt_climbing"],
-		[{"access_state": "in_cabin", "powered": false}, "insp_hint"],
-		[{"access_state": "in_cabin", "powered": true, "objective_phase": "not_started"}, "obj_not_started"],
-		[{"access_state": "in_cabin", "powered": true, "objective_phase": "carrying"}, "obj_carrying"],
-		[{"access_state": "in_cabin", "powered": true, "objective_phase": "delivered"}, "obj_delivered"],
+		[{"access_state": "controlling", "powered": false}, "insp_hint"],
+		[{"access_state": "controlling", "powered": true, "objective_phase": "not_started"}, "obj_not_started"],
+		[{"access_state": "controlling", "powered": true, "objective_phase": "carrying"}, "obj_carrying"],
+		[{"access_state": "controlling", "powered": true, "objective_phase": "delivered"}, "obj_delivered"],
 	]
 	var all_ok := true
 	var detail := ""
@@ -255,39 +255,37 @@ func _test_tutorial_guide_steps() -> void:
 		detail if not all_ok else "%d/%d state cases correct" % [cases.size(), cases.size()])
 
 
-## Approach -> interact -> climb -> in cabin -> exit -> climb down -> outside,
-## driven purely by position + delta, no scene.
+## Approach -> pick up pendant (instant) -> controlling -> put down (instant)
+## -> outside, driven purely by position + delta, no scene. This crane is
+## pendant-operated from the floor — there is nothing to climb (DEC-014).
 func _test_machine_access_state_machine() -> void:
 	var access = MachineAccessScript.new()
 	var dt := 1.0 / 60.0
-	var access_point := Vector3(2.0, 0.0, 0.75)
-	var radius := 1.6
-	var duration := 2.5
+	var access_point := Vector3(1.0, 0.0, 9.0)
+	var radius := 1.8
 
-	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius, duration)
+	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius)
 	var s0 := access.state_name()
-	access.update(dt, access_point, access_point, radius, duration)
+	access.update(dt, access_point, access_point, radius)
 	var s1 := access.state_name()
 	var interacted := access.try_interact()
 	var s2 := access.state_name()
-	var steps := int(ceil(duration / dt)) + 2
-	for i in steps:
-		access.update(dt, access_point, access_point, radius, duration)
+	# While controlling, update() must ignore player position (the operator is
+	# standing still holding the pendant) — feed a far-away position to prove it.
+	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius)
 	var s3 := access.state_name()
 	var exited := access.try_exit()
 	var s4 := access.state_name()
-	for i in steps:
-		access.update(dt, access_point, access_point, radius, duration)
-	# Climb-down finishes mid-loop and correctly re-detects "still standing at
-	# the ladder foot" as IN_ZONE — step away before reading the final state.
-	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius, duration)
+	# Putting the pendant down falls back to OUTSIDE; still standing right
+	# there re-detects IN_ZONE on the very next update() — step away first.
+	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius)
 	var s5 := access.state_name()
 
 	_record("machine_access_full_cycle",
-		s0 == "outside" and s1 == "in_zone" and interacted and s2 == "climbing_up"
-			and s3 == "in_cabin" and exited and s4 == "climbing_down" and s5 == "outside",
-		("outside(%s) -> in_zone(%s) -> interact=%s -> climbing_up(%s) -> in_cabin(%s) "
-			+ "-> exit=%s -> climbing_down(%s) -> outside(%s)")
+		s0 == "outside" and s1 == "in_zone" and interacted and s2 == "controlling"
+			and s3 == "controlling" and exited and s5 == "outside",
+		("outside(%s) -> in_zone(%s) -> interact=%s -> controlling(%s) "
+			+ "-> still controlling while player moves away(%s) -> exit=%s(%s) -> outside(%s)")
 			% [s0, s1, interacted, s2, s3, exited, s4, s5])
 
 
@@ -310,3 +308,50 @@ func _test_load_body_collision_math() -> void:
 			and floor_hit and not floor_clear and col_hit and not col_clear,
 		"danger=%s push_len=%.2f overlap(yes/no)=%s/%s floor(hit/clear)=%s/%s column(hit/clear)=%s/%s"
 		% [danger, push.length(), overlap_yes, overlap_no, floor_hit, floor_clear, col_hit, col_clear])
+
+
+## Bounce math: penetrating + moving into the surface -> corrected position
+## sits exactly on it, velocity reflects with restitution/damping. Requested
+## explicitly ("físicas de rebote... de impacto") after the previous version
+## only detected and logged contact without any physical response.
+func _test_load_body_impact_response() -> void:
+	var restitution := 0.3
+	var damping := 0.8
+
+	var floor_hit: Dictionary = LoadBodyScript.resolve_floor_contact(
+		Vector3(0.0, 0.2, 0.0), Vector3(1.0, -3.0, 0.5), restitution, damping)
+	var floor_clear: Dictionary = LoadBodyScript.resolve_floor_contact(
+		Vector3(0.0, 5.0, 0.0), Vector3(0.0, -3.0, 0.0), restitution, damping)
+	var floor_leaving: Dictionary = LoadBodyScript.resolve_floor_contact(
+		Vector3(0.0, 0.2, 0.0), Vector3(0.0, 1.0, 0.0), restitution, damping)
+	var floor_ok: bool = floor_hit.hit and absf(floor_hit.center.y - 0.45) < 1e-6 \
+		and absf(floor_hit.vel.y - 0.9) < 1e-6 and absf(floor_hit.vel.x - 0.8) < 1e-6 \
+		and not floor_clear.hit and not floor_leaving.hit
+
+	var columns := [{"pos": Vector3(10.0, 4.35, 0.75), "size": Vector3(0.4, 8.7, 0.4)}]
+	var col_hit: Dictionary = LoadBodyScript.resolve_column_contact(
+		Vector3(10.3, 4.0, 0.75), Vector3(-2.0, 0.0, 1.0), columns, restitution, damping)
+	var col_clear: Dictionary = LoadBodyScript.resolve_column_contact(
+		Vector3(30.0, 4.0, 0.75), Vector3(-2.0, 0.0, 1.0), columns, restitution, damping)
+	var col_ok: bool = col_hit.hit and absf(col_hit.center.x - 10.8) < 1e-6 \
+		and absf(col_hit.vel.x - 0.6) < 1e-6 and absf(col_hit.vel.z - 0.8) < 1e-6 \
+		and not col_clear.hit
+
+	_record("load_body_impact_response", floor_ok and col_ok,
+		"floor: hit=%s center.y=%.3f vel=%s (clear=%s, leaving=%s) | column: hit=%s center.x=%.3f vel=%s (clear=%s)"
+		% [floor_hit.hit, floor_hit.center.y, floor_hit.vel, floor_clear.hit, floor_leaving.hit,
+			col_hit.hit, col_hit.center.x, col_hit.vel, col_clear.hit])
+
+
+## Near-miss radius: larger than the exact contact box, per
+## .claude/rules/simulation-physics.md ("separate physical collision volumes
+## from safety/near-miss volumes").
+func _test_load_safety_radius() -> void:
+	var center := Vector3(10.0, 3.5, 9.0)
+	var close_but_clear: bool = LoadBodyScript.is_within_safety_radius(
+		center, Vector3(11.0, 3.5, 9.0), 2.0)
+	var far_enough: bool = LoadBodyScript.is_within_safety_radius(
+		center, Vector3(13.0, 3.5, 9.0), 2.0)
+	_record("load_safety_radius_distinguishes_near_miss",
+		close_but_clear and not far_enough,
+		"1.0 m away (radius 2.0 m): near=%s; 3.0 m away: near=%s" % [close_but_clear, far_enough])

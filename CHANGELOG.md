@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.1 — 2026-07-27 — Correction: pendant control, real bounce, safety radius
+Same-day follow-up after the user played 0.4.0 and corrected a factual error: this
+overhead crane is pendant-operated from the factory floor, not from a cabin. Also
+adds physical consequences that were previously detection-only.
+
+### Changed
+- **No more cabin or ladder.** The crane is now operated from a ground-level pendant
+  control station — walk up to it, press E to pick it up (instant), operate, F to put
+  it down. The station sits at a point the crane can physically never reach, so it is
+  a genuinely safe place to stand, not just usually clear.
+- The "cabin" camera view is gone; the first-person view is now used both for walking
+  and for operating, since you never leave the factory floor.
+
+### Added
+- **Real impact physics.** The load now bounces off the floor and columns instead of
+  just being logged as a collision — inertia carries through the impact, with some
+  energy lost each bounce, tuned to feel plausible rather than perfectly elastic.
+- **Safety radius.** A translucent red circle on the floor follows the load and marks
+  a caution zone larger than the load itself — stepping into it (without actually
+  touching the load) triggers an amber warning and a separate "near miss" count,
+  distinct from an actual hit.
+- **Big on-screen key display.** WASD shown in their physical layout, lighting up the
+  instant each key is pressed, plus Shift and the two remaining action keys — answers
+  the request to see controls "tipo videojuego."
+
+### Fixed
+- A real bug found while adding the bounce physics: floor/column contact had been
+  checked against the wrong reference point on the load (off by 0.5 m), meaning
+  contact could fire slightly earlier than it visually should have. Now consistent.
+
 ## 0.4.0 — 2026-07-27 — Hito 1: "Entrar a la grúa"
 First-person playable pass over the Hito-0 physics proof. The crane and its physics are unchanged; everything around them is new.
 

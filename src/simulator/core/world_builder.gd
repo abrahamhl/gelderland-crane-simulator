@@ -13,6 +13,7 @@ var truck_b: MeshInstance3D
 var trolley: MeshInstance3D
 var cable_mesh: MeshInstance3D
 var load_box: MeshInstance3D
+var safety_ring: MeshInstance3D   # follows the load's XZ each frame (main.gd)
 var columns: Array = []      # world-space AABB-ish {pos: Vector3, size: Vector3}
 
 
@@ -21,7 +22,8 @@ func build() -> void:
 	_build_hall_and_columns()
 	_build_boundary_walls()
 	_build_crane_visuals()
-	_build_ladder_marker()
+	_build_safety_ring()
+	_build_control_station()
 	_build_zone_marker(AppSettings.PICKUP_ZONE, Loc.t("zone_a"))
 	_build_zone_marker(AppSettings.DROPOFF_ZONE, Loc.t("zone_b"))
 
@@ -129,27 +131,31 @@ func _build_crane_visuals() -> void:
 	add_child(cable_mesh)
 
 
-## Ladder rungs from the floor up to the fixed operator cabin, purely visual —
-## the actual climb is a scripted camera/player move driven by MachineAccess.
-func _build_ladder_marker() -> void:
-	var rung_mat := Color(0.9, 0.6, 0.05)
+## Ground-level pendant control station: a post-mounted control box the
+## operator walks up to and "picks up" (instant) — this crane has no cabin
+## and nothing to climb (DEC-014). x=1.0 keeps it geometrically outside the
+## bridge's reach (bridge_limits.x = 2.0), so it is a provably safe spot.
+func _build_control_station() -> void:
 	var base: Vector3 = AppSettings.ACCESS_POINT
-	var top: Vector3 = AppSettings.CABIN_ANCHOR
-	var rung_count := 14
-	for i in rung_count:
-		var f := float(i) / float(rung_count - 1)
-		var y := lerpf(base.y + 0.3, top.y - 0.5, f)
-		_box(Vector3(0.5, 0.04, 0.05), Vector3(base.x + 0.35, y, base.z + 0.55), rung_mat)
-	# side rails
-	_box(Vector3(0.04, top.y - base.y, 0.05),
-		Vector3(base.x + 0.1, (base.y + top.y) * 0.5, base.z + 0.55), rung_mat)
-	_box(Vector3(0.04, top.y - base.y, 0.05),
-		Vector3(base.x + 0.6, (base.y + top.y) * 0.5, base.z + 0.55), rung_mat)
-	# cabin platform + booth shell (simple box with an open front)
-	_box(Vector3(1.6, 0.1, 1.6), Vector3(top.x, top.y - 0.55, top.z), Color(0.4, 0.42, 0.45))
-	_box(Vector3(1.6, 1.6, 0.1), Vector3(top.x, top.y + 0.25, top.z + 0.8), Color(0.55, 0.58, 0.6))
-	# access-point floor decal
-	var access_mat := Color(0.9, 0.5, 0.05, 0.6)
+	var post_color := Color(0.35, 0.37, 0.4)
+	var box_color := Color(0.9, 0.6, 0.05)
+	_box(Vector3(0.12, 1.1, 0.12), base + Vector3(0.0, 0.55, 0.0), post_color)
+	_box(Vector3(0.35, 0.45, 0.18), base + Vector3(0.0, 1.15, 0.1), box_color)
+	# a couple of raised buttons for visual clarity
+	_box(Vector3(0.08, 0.05, 0.05), base + Vector3(-0.08, 1.28, 0.2), Color(0.2, 0.8, 0.2))
+	_box(Vector3(0.08, 0.05, 0.05), base + Vector3(0.08, 1.28, 0.2), Color(0.85, 0.15, 0.15))
+
+	var label := Label3D.new()
+	label.text = Loc.t("access_label")
+	label.position = base + Vector3(0.0, 1.9, 0.0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size = 28
+	label.modulate = box_color
+	label.outline_size = 6
+	add_child(label)
+
+	# floor decal marking the pickup radius
+	var access_mat := Color(0.9, 0.5, 0.05, 0.5)
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(AppSettings.ACCESS_RADIUS_M, AppSettings.ACCESS_RADIUS_M) * 2.0
 	var mi := MeshInstance3D.new()
@@ -161,6 +167,22 @@ func _build_ladder_marker() -> void:
 	mi.mesh.material = mat
 	mi.position = base + Vector3(0.0, 0.02, 0.0)
 	add_child(mi)
+
+
+## Translucent red disc on the floor that follows the load's XZ each frame
+## (main.gd), marking the near-miss/caution radius — larger than the load's
+## exact physical collision box, per .claude/rules/simulation-physics.md.
+func _build_safety_ring() -> void:
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(AppSettings.LOAD_SAFETY_RADIUS_M, AppSettings.LOAD_SAFETY_RADIUS_M) * 2.0
+	safety_ring = MeshInstance3D.new()
+	safety_ring.mesh = plane
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.9, 0.2, 0.2, 0.18)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	safety_ring.mesh.material = mat
+	add_child(safety_ring)
 
 
 ## Flat coloured disk on the floor + a thin vertical beam, so origin/destination

@@ -1,51 +1,51 @@
 # Session Handoff
 
-## Session S-2026-07-27-A — Hito 1: "Entrar a la grúa"
+## Session S-2026-07-27-B — same-day correction: pendant control, real bounce, safety radius, key overlay
 
-### Completed
-Turned the Hito-0 physics proof (bare orbit camera, silent 1-2-3 rule, no player, no objective) into a first-person playable experience, per the user's explicit Hito-1 scope (player/cabin/camera/collision/HUD/objective/tutorial on the EXISTING overhead crane — no textures, no second machine, no research, no subagents).
+Continuation of S-2026-07-27-A (Hito 1) in the same session. The user played the build, confirmed it was "muchísimo mejor" than the previous physics-only proof, but flagged one **factual** error and several missing mechanics — all addressed below.
 
-Created:
-- `core/player_controller.gd` — first-person `CharacterBody3D`: mouse look, WASD, sprint (Shift), jump, real gravity/collision.
-- `core/world_builder.gd` — hall/crane geometry extracted from `main.gd`, now with `StaticBody3D` colliders on the floor, boundary walls and all 16 columns (previously visual-only), plus a ladder visual and floor-marked pickup/drop-off zones with beacons and 3D labels.
-- `core/machine_access.gd` — pure state machine (OUTSIDE → IN_ZONE → CLIMBING_UP → IN_CABIN → CLIMBING_DOWN → OUTSIDE), unit tested.
-- `core/camera_director.gd` — 5 views: CABIN (fixed pulpit, looks at the hook), WALK (first-person), ORBIT, HOOK, TOPDOWN. `Tab` cycles, `C` resets the active view. See DEC-011.
-- `core/load_body.gd` — the load's collision surface, always following the sim's math position. Detects contact with the player (pushes them, flags a safety violation — DEC-008) and with the floor/columns (pure AABB checks, DEC-009).
-- `core/objectives.gd` — pickup → carry → deliver scoring for SC-001, pure logic, unit tested with a clean-pass and a swing-failure case.
-- `core/tutorial_guide.gd` — pure state → instruction mapping. Every gate (approach, climb, inspection, objective) now has an explicit on-screen instruction. This is the direct fix for "no sé qué hacer" / the undocumented 1-2-3 rule.
-- `core/hud.gd` — game-style HUD: a swing gauge (needle + green/amber/red zones), a tension bar, a wind compass, a top-down minimap (hall bounds, hook position, pickup=yellow/drop-off=blue zones, player dot), the objective panel, the always-visible tutorial instruction, contextual controls text, and an `F1` full-screen help overlay.
-- `src/simulator/scenarios/SC-001_palet_500kg.json` — first scenario: move a 500 kg pallet from Zone A to Zone B, swing must stay under 2°.
-- `core/loc.gd` — **rewritten with Spanish.** Default HUD pairing is now EN/ES (was EN/NL) — this was the direct fix for the screenshot showing an unreadable HUD. Dutch is still reachable via `L`. See DEC-005.
-- `core/input_config.gd` — added move/jump/interact/exit_cabin/camera_cycle/help_toggle/mouse-capture actions. Several physical keys are intentionally shared between on-foot and in-cabin meanings (e.g. `E` = interact on foot, hoist-down in cabin) — contexts never overlap.
-- `core/settings.gd` — added player tuning, access/cabin/ladder coordinates, the SC-001 zone definitions, selectable masses (250/500/1000/2000 kg — selection UI is not wired yet, just the constant).
-- `slice_overhead/main.gd` — rewritten as an orchestrator composing all of the above (was 356 lines doing everything itself).
-- `tests/module_tests.gd` — +5 pure-logic tests (objectives x2, tutorial_guide, machine_access, load_body collision math), no scene needed.
-- `tests/selftest_driver.gd` — a new condition-driven approach/collision/climb pre-phase, then the ENTIRE original Hito-0 fixed-tick schedule runs unchanged (same tick numbers) except the HUD-language assertion and the camera phase (which now Tabs into ORBIT first — see DEC-011). A cabin-exit check was appended after the original finish point.
+### The correction that mattered most
+The user has real factory lifting-floor experience and corrected the core interaction model: **this overhead crane (bovenloopkraan) is operated from a pendant/remote control on the factory floor, not from a cabin.** There is nothing to climb. The previous session's fixed-cabin-with-ladder design (DEC-006) was not a stylistic choice — it was wrong about how this equipment works. This is now fixed (DEC-014, supersedes DEC-006):
+- `MachineAccess` states are now just `OUTSIDE` / `IN_ZONE` / `CONTROLLING` — no climbing, picking the pendant up/down is instant.
+- The control station sits at `Vector3(1.0, 0.0, 9.0)` — x=1.0 is strictly outside `CraneRig.bridge_limits.x` (2.0), so the crane can PHYSICALLY never reach the operator there. Provably safe, not just usually clear.
+- `CameraDirector` lost its CABIN mode entirely; the home view is always first-person (walking and operating are the same physical situation for this machine — DEC-011 amended).
+
+### Other feedback addressed this turn
+- **Real impact physics** (DEC-015): the load now bounces off the floor and columns (restitution 0.3, damping 0.8), applied externally to `sim.load_pos`/`load_vel` so the validated free-swing integrator in `cable_load_sim.gd` is never touched. Found and fixed a real 0.5 m offset bug in the same code path: floor/column checks had been using the cable-attachment point directly instead of the load's visual box centre.
+- **Safety radius / near-miss** (DEC-016): a 2.0 m caution zone around the load, larger than its exact collision box, per `.claude/rules/simulation-physics.md`'s "separate physical volumes from safety/near-miss volumes." A translucent red disc on the floor follows the load and shows it in real time; entering it flashes an amber caution (lighter than the red "contact" warning) and is scored separately as a near-miss, not a hard failure.
+- **Big, live key-cap overlay** (DEC-017): WASD in their physical layout, plus Shift/Space-or-Q/E, each lighting up the instant its bound action is held — directly answers "que se vea dónde estoy pulsando."
+- **Explicitly deferred, not dropped** (DEC-018): the user also asked for several scenario variants (approach-and-lift from boxes, bigger load, load wedged between boxes, higher/lower placements). This is real, separate scope — deferred to the next session as its own milestone, building on the now-corrected foundation. `objectives.gd`'s data-driven design already supports adding SC-002+ from JSON alone for most of this.
+
+### Files touched this turn
+- `core/machine_access.gd` — simplified state machine (no climbing).
+- `core/camera_director.gd` — CABIN mode removed.
+- `core/load_body.gd` — added `resolve_floor_contact`, `resolve_column_contact`, `is_within_safety_radius`; fixed the box-centre offset contract (all functions now clearly expect a box CENTRE, not the raw cable-attachment point).
+- `core/objectives.gd` — added `near_misses` tracking (`update()`'s new parameter defaults to 0, old callers unaffected).
+- `core/world_builder.gd` — ladder marker replaced with a control-box/post visual; added the safety-radius floor ring.
+- `core/tutorial_guide.gd`, `core/loc.gd` — climbing-related states/text removed; pendant-related text added; the one leftover "climb down" string in `obj_delivered` fixed to "put down the pendant."
+- `core/hud.gd` — `KeyCap` component + key cluster; caution/impact toast labels; `in_cabin` renamed to `controlling` throughout.
+- `core/settings.gd` — `ACCESS_POINT` moved to the provably-safe `(1.0, 0.0, 9.0)`; `CABIN_ANCHOR`/`CLIMB_DURATION_S` removed; added `LOAD_SAFETY_RADIUS_M`, `IMPACT_RESTITUTION`, `IMPACT_DAMPING`.
+- `slice_overhead/main.gd` — `_drive_player_or_climb()` replaced with the much simpler `_drive_player()`; added `_resolve_load_impacts()` and `_check_near_miss()`; `is_in_cabin()` renamed `is_controlling()` throughout.
+- `tests/module_tests.gd` — rewrote the access-state-machine test for instant transitions; added `_test_load_body_impact_response` and `_test_load_safety_radius`; updated the tutorial-guide test cases.
+- `tests/selftest_driver.gd` — approach phase no longer waits through a climb (picks up the pendant within 1-2 ticks of the key press instead of up to 1400); checks renamed `pendant_pickup_works`/`pendant_putdown_works`.
+
+### Bugs found and fixed via headless verification this turn
+1. `var floor_ok := floor_hit.hit and ...` / `var col_ok := ...` in the new module tests — same class of bug as Hito 1's DEC (type inference fails when the expression touches `Dictionary`-typed `.field` access); fixed with explicit `: bool` annotations.
+2. The real 0.5 m box-centre offset bug described above (found while implementing bounce, not by accident this time — DEC-015 documents it).
 
 ### Evidence
-- Module tests: **12/12 PASS** (`logs/MODULE_TEST_RESULTS.json`).
-- Scene selftest: **21/21 PASS** (`logs/SELFTEST_RESULTS.json`) — the original 16 checks all still pass (proving the refactor didn't regress Hito 0's validated physics), plus 5 new: `player_spawns_on_foot`, `player_blocked_by_column` (real `CharacterBody3D` collision against a real column), `cabin_entry_works`, `camera_modes_distinct` (all 4 non-orbit-default views pairwise distinct transforms), `cabin_exit_works`.
-- Headless import: clean. Windowed launch (300 frames, Vulkan/RTX 3060): clean, no errors.
+- Module tests: **14/14 PASS** (`logs/MODULE_TEST_RESULTS.json`) — the 12 from Hito 1 (with the access-machine test rewritten for the new instant-pickup model) plus 2 new: impact response, safety radius.
+- Scene selftest: **21/21 PASS** (`logs/SELFTEST_RESULTS.json`) — same 21 checks as Hito 1, renamed where the underlying mechanic changed (`cabin_entry_works` → `pendant_pickup_works`, etc.), all still passing; `reset_deterministic`'s hash is UNCHANGED (`da72cb6e...`) confirming the bounce-physics code path never triggers during the normal tested sequence (the load never reaches the floor/a column in that scripted run), so nothing about the validated trajectory shifted.
+- Clean headless import, clean windowed launch (Vulkan/RTX 3060).
 
-### Bugs found and fixed during this session (see DECISIONS.md for the full write-up)
-1. Forgot to carry `_sync_visuals()`/`_update_cable_visual()` over into the new `main.gd` — parse error, fixed.
-2. `var t := access.climb_progress()` — `:=` type inference fails when the left-hand variable is statically typed as the base `RefCounted` and the call isn't wrapped in something with a known return type. Fixed with an explicit `: float` annotation.
-3. `camera_director.gd` reads its OWN `rig`/`sim` fields, which `main.gd` never assigned — every non-cabin-position camera update silently failed (`Nonexistent function/property on Nil`), so orbit/hook/topdown never actually moved. Fixed by assigning `cam.rig`/`cam.sim` every frame in `main._process()` (they get replaced on every `sim_reset`, so a one-time assignment would go stale).
-4. The scene selftest's own approach-phase code pressed AND released the `interact` action within the same driver call — `main.gd`'s edge detector never observed a "just pressed" frame, so the player could walk to the ladder but never climb in. This is a property of the whole test harness (main's `_physics_process` runs before the driver's, within the same frame — established since Hito 0), not a one-off: any test-driven discrete action must be held across two ticks. Documented as DEC-012 so it isn't rediscovered later.
-5. A `module_tests.gd` unit test for `machine_access` initially "failed" because it kept feeding the ladder's exact coordinates after climbing down, and the state machine correctly re-detected "still standing at the ladder foot" as IN_ZONE — not a code bug, a test bug (fixed by stepping the simulated player away before the final assertion).
-
-### Decisions
-DEC-005 through DEC-013 appended to `DECISIONS.md` — read these before touching camera modes, the reset button, collision handling, or the test harness's input timing.
-
-### What is explicitly OUT of scope for this hito (do not start these next)
-- Textures, PBR materials, HDRI sky (Hito 2 — user pre-approved Poly Haven CC0 assets).
-- A second machine (tower crane, mobile crane — Hito 3+).
-- Vacancy/licence research (paused since Hito 0, per `CLAUDE.md`).
-- Load physically resting on a surface (cable going slack) — currently detection-only (KI-004/KI-009... see KNOWN_ISSUES).
-- Visual inspection of the HUD/gauges/minimap layout — verified to RUN without error, not verified to LOOK right (KI-008). The user should look at it.
+### What is explicitly OUT of scope still
+- Multiple scenario variants (boxes, heights, tight spaces) — DEC-018, next milestone.
+- Textures/PBR/HDRI sky — still pending, Poly Haven CC0 pre-approved.
+- A second machine.
+- Visual inspection of the HUD/gauges/bounce/key-overlay layout — verified to run and compute correctly, not verified to LOOK right (KI-008). The user should look at it.
 
 ### Next exact task
-**Hito 2 — visual pass.** Texture the hall (concrete, rust, painted steel), crane, load and add an HDRI sky, all CC0 from Poly Haven, keeping the existing procedural geometry (so it stays articulable/testable). One session, verified, committed, stop. Do not start a second machine before this lands.
+**Scenario variety milestone.** Add 3-5 new scenario JSON files (SC-002..SC-00N) plus whatever box-stack geometry each needs, exercising: pickup requiring the player to walk around an obstacle, a heavier/bigger load, a load wedged between boxes, a higher placement, a lower placement. Reuse `objectives.gd`, `load_body.gd`, `world_builder.gd`'s zone-marker pattern — none of those need new capabilities, just new data and geometry. One session, verified, committed, stop.
 
 ### How to run
 ```
@@ -58,4 +58,4 @@ tools/godot/Godot_v4.6.3-stable_win64_console.exe --path src/simulator
 tools/godot/Godot_v4.6.3-stable_win64_console.exe --headless --path src/simulator --script res://tests/module_tests.gd -- --out=<ABS_LOGS_DIR>
 tools/godot/Godot_v4.6.3-stable_win64_console.exe --headless --fixed-fps 60 --path src/simulator -- --selftest --out=<ABS_LOGS_DIR>
 ```
-Controls: mouse look, WASD walk, Shift sprint/fine, Space jump, **E near the ladder to climb in** (E = hoist-down once in the cabin), F to climb out, 1-2-3 pre-use inspection (in cabin, required before the crane powers on), Q/E hoist, W/S bridge, A/D trolley, V wind, R reset (resets the machine, not your position — DEC-007), Tab cycle camera, C reset current camera view, F1 help, L language (EN/ES → EN → ES → NL), Esc toggle mouse capture.
+Controls: mouse look, WASD walk, Shift sprint/fine, Space jump, **E near the pendant station to pick it up** (instant — E = hoist-down once controlling), F to put it down, 1-2-3 pre-use inspection (required before the crane powers on), Q/E hoist, W/S bridge, A/D trolley, V wind, R reset (resets the machine, not your position — DEC-007), Tab cycle camera, C reset current camera view, F1 help, L language, Esc toggle mouse capture. Stay clear of the red safety ring on the floor — it follows the load and marks the caution radius.

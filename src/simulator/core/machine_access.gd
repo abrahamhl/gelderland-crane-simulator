@@ -1,83 +1,56 @@
 extends RefCounted
-## MachineAccess — pure state machine for approach/climb/cabin/exit. No scene
-## dependency: fed a player position each frame, returns state for main.gd to
-## route input and drive the camera. Kept as plain logic so it is unit
-## testable (see tests/module_tests.gd) without instancing the 3D scene.
+## MachineAccess — pure state machine for the pendant control station. This
+## overhead crane is operated from a fixed point on the factory floor (a
+## pendant/remote control box), not from a cabin — there is nothing to climb.
+## Walk into range, pick up the pendant (instant), operate, put it down
+## (instant). No scene dependency: fed a player position each frame, unit
+## tested in tests/module_tests.gd.
 
-enum State { OUTSIDE, IN_ZONE, CLIMBING_UP, IN_CABIN, CLIMBING_DOWN }
+enum State { OUTSIDE, IN_ZONE, CONTROLLING }
 
 var state: int = State.OUTSIDE
-var _climb_t := 0.0
-var _climb_duration := 1.0
-var _climbing_up := true
 
 
 func reset() -> void:
 	state = State.OUTSIDE
-	_climb_t = 0.0
 
 
-## player_pos: world position of the player's feet. Returns nothing; call
-## state after. duration_s: how long a climb (up or down) takes.
-func update(delta: float, player_pos: Vector3, access_point: Vector3,
-		access_radius: float, duration_s: float) -> void:
-	match state:
-		State.OUTSIDE, State.IN_ZONE:
-			var flat_dist := Vector2(player_pos.x - access_point.x,
-				player_pos.z - access_point.z).length()
-			state = State.IN_ZONE if flat_dist <= access_radius else State.OUTSIDE
-		State.CLIMBING_UP, State.CLIMBING_DOWN:
-			_climb_t += delta
-			if _climb_t >= _climb_duration:
-				state = State.IN_CABIN if _climbing_up else State.OUTSIDE
-		State.IN_CABIN:
-			pass
-	_climb_duration = duration_s
+## player_pos: world position of the player's feet. While CONTROLLING, the
+## player is standing still holding the pendant, so we skip the distance
+## re-check (try_exit() is the only way out of that state).
+func update(_delta: float, player_pos: Vector3, access_point: Vector3,
+		access_radius: float) -> void:
+	if state == State.CONTROLLING:
+		return
+	var flat_dist := Vector2(player_pos.x - access_point.x,
+		player_pos.z - access_point.z).length()
+	state = State.IN_ZONE if flat_dist <= access_radius else State.OUTSIDE
 
 
-## Returns true if the interact/exit press actually changed state.
+## Picking up the pendant is instantaneous — it's a handheld box, not a climb.
 func try_interact() -> bool:
 	if state == State.IN_ZONE:
-		state = State.CLIMBING_UP
-		_climbing_up = true
-		_climb_t = 0.0
+		state = State.CONTROLLING
 		return true
 	return false
 
 
+## Putting the pendant down is instantaneous too. Falls back to OUTSIDE; the
+## next update() call re-derives IN_ZONE if the player is still standing there.
 func try_exit() -> bool:
-	if state == State.IN_CABIN:
-		state = State.CLIMBING_DOWN
-		_climbing_up = false
-		_climb_t = 0.0
+	if state == State.CONTROLLING:
+		state = State.OUTSIDE
 		return true
 	return false
 
 
-func is_in_cabin() -> bool:
-	return state == State.IN_CABIN
-
-
-func is_climbing() -> bool:
-	return state == State.CLIMBING_UP or state == State.CLIMBING_DOWN
-
-
-## 0..1 progress through the current climb; 0 when not climbing.
-func climb_progress() -> float:
-	if not is_climbing() or _climb_duration <= 0.0:
-		return 0.0
-	return clampf(_climb_t / _climb_duration, 0.0, 1.0)
-
-
-func climbing_up() -> bool:
-	return _climbing_up
+func is_controlling() -> bool:
+	return state == State.CONTROLLING
 
 
 func state_name() -> String:
 	match state:
 		State.OUTSIDE: return "outside"
 		State.IN_ZONE: return "in_zone"
-		State.CLIMBING_UP: return "climbing_up"
-		State.IN_CABIN: return "in_cabin"
-		State.CLIMBING_DOWN: return "climbing_down"
+		State.CONTROLLING: return "controlling"
 		_: return "?"

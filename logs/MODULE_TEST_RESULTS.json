@@ -2,7 +2,7 @@
   "all_ok": true,
   "date": "2026-07-17",
   "godot": "4.6.3-stable (official)",
-  "passed": 12,
+  "passed": 14,
   "suite": "slice001_module_tests",
   "tests": [
     {
@@ -51,12 +51,12 @@
       "ok": true
     },
     {
-      "detail": "8/8 state cases correct",
+      "detail": "6/6 state cases correct",
       "id": "tutorial_guide_covers_all_states",
       "ok": true
     },
     {
-      "detail": "outside(outside) -> in_zone(in_zone) -> interact=true -> climbing_up(climbing_up) -> in_cabin(in_cabin) -> exit=true -> climbing_down(climbing_down) -> outside(outside)",
+      "detail": "outside(outside) -> in_zone(in_zone) -> interact=true -> controlling(controlling) -> still controlling while player moves away(controlling) -> exit=true(outside) -> outside(outside)",
       "id": "machine_access_full_cycle",
       "ok": true
     },
@@ -64,7 +64,17 @@
       "detail": "danger=true push_len=3.35 overlap(yes/no)=true/false floor(hit/clear)=true/false column(hit/clear)=true/false",
       "id": "load_body_collision_math",
       "ok": true
+    },
+    {
+      "detail": "floor: hit=true center.y=0.450 vel=(0.8, 0.9, 0.4) (clear=false, leaving=false) | column: hit=true center.x=10.800 vel=(0.6, 0.0, 0.8) (clear=false)",
+      "id": "load_body_impact_response",
+      "ok": true
+    },
+    {
+      "detail": "1.0 m away (radius 2.0 m): near=true; 3.0 m away: near=false",
+      "id": "load_safety_radius_distinguishes_near_miss",
+      "ok": true
     }
   ],
-  "total": 12
+  "total": 14
 }

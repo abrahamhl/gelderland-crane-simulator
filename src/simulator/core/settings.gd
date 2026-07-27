@@ -28,13 +28,26 @@ const MOUSE_SENSITIVITY := 0.0025
 const PITCH_LIMIT_DEG := 80.0
 
 # --- machine access -----------------------------------------------------------
+## This overhead crane is pendant-operated from the factory floor — the
+## operator never climbs anywhere. x=1.0 is chosen deliberately: it is
+## strictly less than CraneRig.bridge_limits.x (2.0), so the bridge/trolley
+## can PHYSICALLY never reach this point. That makes the control station
+## provably outside the crane's operating envelope, not just "usually" clear
+## of it (see DECISIONS.md DEC-014, superseding the fixed-cabin design).
+const ACCESS_POINT := Vector3(1.0, 0.0, 9.0)
+const ACCESS_RADIUS_M := 1.8
 
-## Ladder foot / cabin entry trigger, at the base of the first runway column.
-const ACCESS_POINT := Vector3(2.0, 0.0, 0.75)
-const ACCESS_RADIUS_M := 1.6
-## Fixed operator cabin (pulpit) near the same column, at rail height.
-const CABIN_ANCHOR := Vector3(2.0, 9.3, 2.2)
-const CLIMB_DURATION_S := 2.5
+# --- load safety / impact physics -------------------------------------------
+
+## Radius (m) around the load's centre that counts as a near-miss/caution
+## zone — larger than the load's own physical collision box (LoadBody.LOAD_SIZE),
+## per .claude/rules/simulation-physics.md: "separate physical collision
+## volumes from safety/near-miss volumes." Entering it is a caution, not a
+## violation; touching the load itself always is (DEC-008).
+const LOAD_SAFETY_RADIUS_M := 2.0
+## Restitution/damping for the load bouncing off the floor or a column.
+const IMPACT_RESTITUTION := 0.3
+const IMPACT_DAMPING := 0.8
 
 # --- scenario SC-001 (pickup/drop-off zones, floor-mounted markers) ---------
 

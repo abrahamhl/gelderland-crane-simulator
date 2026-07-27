@@ -16,6 +16,7 @@ var elapsed_s := 0.0
 var max_swing_deg := 0.0
 var collisions := 0
 var violations := 0
+var near_misses := 0
 
 var _dwell_timer := 0.0
 
@@ -31,6 +32,7 @@ func reset() -> void:
 	max_swing_deg = 0.0
 	collisions = 0
 	violations = 0
+	near_misses = 0
 	_dwell_timer = 0.0
 
 
@@ -46,15 +48,19 @@ static func _zone_dist(x: float, z: float, zone: Dictionary) -> float:
 	return Vector2(x - float(zone.x), z - float(zone.z)).length()
 
 
-## Advances the scenario by one tick. new_collisions/new_violations are counts
-## observed THIS tick (added to the running total), not cumulative totals.
+## Advances the scenario by one tick. new_collisions/new_violations/
+## new_near_misses are counts observed THIS tick (added to the running
+## total), not cumulative totals. new_near_misses defaults to 0 so existing
+## callers that don't track it (older tests) keep working unmodified.
 func update(delta: float, load_x: float, load_z: float, height_over_floor: float,
-		swing_deg: float, new_collisions: int, new_violations: int) -> void:
+		swing_deg: float, new_collisions: int, new_violations: int,
+		new_near_misses: int = 0) -> void:
 	if scenario.is_empty() or phase == Phase.DELIVERED:
 		return
 	elapsed_s += delta
 	collisions += new_collisions
 	violations += new_violations
+	near_misses += new_near_misses
 	if phase == Phase.CARRYING:
 		max_swing_deg = maxf(max_swing_deg, swing_deg)
 
@@ -80,6 +86,7 @@ func score() -> Dictionary:
 		"max_swing_deg": max_swing_deg,
 		"collisions": collisions,
 		"violations": violations,
+		"near_misses": near_misses,
 		"passed": phase == Phase.DELIVERED and max_swing_deg <= swing_limit
 			and collisions == 0 and violations == 0,
 	}

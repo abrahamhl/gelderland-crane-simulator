@@ -65,3 +65,32 @@ Append-only. Record: date, test ID, command, result, notes.
 
 ### Not verified this session
 Visual appearance of the HUD gauges, minimap and tutorial panel layout was NOT visually inspected (no screenshot tool used against the native Godot window this session) — see KI-008. All 33 automated checks (12 module + 21 scene) pass, which verifies behavioural correctness, not on-screen layout/readability.
+
+## 2026-07-27 (same day, continued) — Correction verification: pendant control, real bounce, safety radius (Godot 4.6.3.stable.official.7d41c59c4)
+
+### T-009 — Headless project import (post-correction)
+- Command: `...Godot_v4.6.3-stable_win64_console.exe --headless --path src/simulator --import`
+- Result: PASS, clean, first try — no parse errors introduced by the machine_access/camera_director/load_body/main.gd rewrite.
+
+### T-010 — Pure-logic module tests (no scene)
+- Command: `...Godot_v4.6.3-stable_win64_console.exe --headless --path src/simulator --script res://tests/module_tests.gd -- --out=<ABS>/logs`
+- Run 1: FAIL to even load — `SCRIPT ERROR: Parse Error: Cannot infer the type of "floor_ok"/"col_ok" variable`. Same class of bug as Hito 1's type-inference issue: `var floor_ok := floor_hit.hit and ...` fails because `floor_hit` is a `Dictionary` and `.hit`/`.center`/`.vel` field access returns an untyped Variant, which `:=` can't infer through a boolean expression. Fixed with explicit `var floor_ok: bool = ...` / `var col_ok: bool = ...`.
+- Run 2: **PASS 14/14**, exit 0 → `logs/MODULE_TEST_RESULTS.json`. The 12 from Hito 1 unchanged (with `machine_access_full_cycle` rewritten for the instant pickup/putdown model — no climb states left to test) plus 2 new:
+  - `load_body_impact_response`: floor bounce — penetrating at y=0.2 moving down at 3 m/s corrects to y=0.45 (exactly touching) with vel=(0.8, 0.9, 0.4) — matches restitution 0.3 / damping 0.8 by hand calculation exactly; clear and "leaving" (moving away while still overlapping) cases correctly report no hit. Column bounce — pushed out along the axis of least penetration (X here) to x=10.8, vel=(0.6, 0.0, 0.8), clear case no hit.
+  - `load_safety_radius_distinguishes_near_miss`: 1.0 m away (within the 2.0 m radius) reads as near; 3.0 m away does not.
+
+### T-011 — Scene end-to-end selftest (real main scene, pendant control station, real bounce)
+- Command: `...Godot_v4.6.3-stable_win64_console.exe --headless --fixed-fps 60 --path src/simulator -- --selftest --out=<ABS>/logs`
+- Result: **PASS 21/21, exit 0** on the first run after the rewrite (no new bugs surfaced at the integration level, since the module-level bugs were already caught and fixed in T-010) → `logs/SELFTEST_RESULTS.json`.
+  - `player_spawns_on_foot`; `player_blocked_by_column` (unchanged from Hito 1 — same collision mechanic)
+  - `pendant_pickup_works` (picked up after 739 approach ticks / 12.3 s — faster than Hito 1's cabin entry since there is no climb to wait through, just walk + instant pickup)
+  - All 16 original Hito-0 checks unchanged and still passing (bit-identical trajectory hash `da72cb6e...` for `reset_deterministic` — proves the new bounce-resolution code never actually triggers during this scripted sequence, since the load never reaches the floor or a column in it; the validated free-swing trajectory is exactly as before)
+  - `camera_reset`, `camera_modes_distinct` (hook/topdown/first-person/orbit-default all pairwise distinct — first-person view now sampled at the pendant station instead of a fixed cabin pose)
+  - `pendant_putdown_works` (controlling=false only 5 ticks after pressing F — instant, vs. Hito 1's 160-tick climb-down wait)
+
+### T-012 — Windowed launch (post-correction)
+- Command: `...Godot_v4.6.3-stable_win64_console.exe --path src/simulator --quit-after 300`
+- Result: PASS, exit 0 — Vulkan 1.4.341 Forward+ on RTX 3060 Laptop GPU, zero errors/warnings.
+
+### Not verified this round
+Same as T-008's note: on-screen appearance (HUD gauges, minimap, the new key-cap overlay, the new safety-radius floor ring, the bounce actually looking like a bounce) was not visually inspected — see KI-008 (updated) and KI-009 (bounce constants untuned). All 35 automated checks (14 module + 21 scene) verify behavioural/numerical correctness, not visual appearance.

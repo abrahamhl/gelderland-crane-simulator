@@ -77,7 +77,6 @@ class Minimap extends Control:
 	var pickup: Dictionary = {}
 	var dropoff: Dictionary = {}
 	var player_pos = null   # Vector2 or null
-	var in_cabin := false
 
 	const WORLD_X0 := 0.0
 	const WORLD_X1 := 62.0
@@ -98,7 +97,7 @@ class Minimap extends Control:
 			_draw_zone(dropoff, Color(0.15, 0.55, 0.95))
 		var hook := _world_to_local(bridge_x, trolley_z)
 		draw_circle(hook, 5.0, Color(0.85, 0.55, 0.1))
-		if player_pos != null and not in_cabin:
+		if player_pos != null:
 			var p := _world_to_local(player_pos.x, player_pos.y)
 			draw_circle(p, 4.0, Color(1, 1, 1))
 
@@ -107,6 +106,31 @@ class Minimap extends Control:
 		var rad := float(zone.radius) / (WORLD_X1 - WORLD_X0) * size.x
 		draw_circle(p, rad, Color(color.r, color.g, color.b, 0.5))
 		draw_arc(p, rad, 0.0, TAU, 24, color, 2.0)
+
+
+## Big game-style key cap: highlights the instant its bound action is held.
+## Requested explicitly so the player can SEE which key does what and confirm
+## a press registered, instead of reading small printed text.
+class KeyCap extends Control:
+	var label := ""
+	var active := false
+
+	func _draw() -> void:
+		var bg := Color(0.95, 0.95, 1.0, 0.95) if active else Color(0.16, 0.16, 0.2, 0.85)
+		var fg := Color(0.05, 0.05, 0.08) if active else Color(0.9, 0.9, 0.95)
+		draw_rect(Rect2(Vector2.ZERO, size), bg)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, 0.5), false, 2.0)
+		var font := ThemeDB.fallback_font
+		var fs := 18
+		var text_size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, fs)
+		draw_string(font, (size - text_size) * 0.5 + Vector2(0.0, text_size.y * 0.7), label,
+			HORIZONTAL_ALIGNMENT_CENTER, -1, fs, fg)
+
+	func set_state(new_label: String, is_active: bool) -> void:
+		if new_label != label or is_active != active:
+			label = new_label
+			active = is_active
+			queue_redraw()
 
 
 var swing_gauge: SwingGauge
@@ -122,9 +146,22 @@ var help_panel: PanelContainer
 var help_label: Label
 var mass_label: Label
 var danger_label: Label
+var caution_label: Label
+var impact_label: Label
+
+var key_w: KeyCap
+var key_a: KeyCap
+var key_s: KeyCap
+var key_d: KeyCap
+var key_shift: KeyCap
+var key_extra: KeyCap
+var key_e: KeyCap
 
 var help_visible := false
 var _danger_timer := 0.0
+var _caution_timer := 0.0
+var _impact_timer := 0.0
+var _impact_key := "impact_floor"
 
 
 func build() -> void:
@@ -161,6 +198,22 @@ func build() -> void:
 	danger_label.modulate = Color(1, 0.2, 0.2)
 	danger_label.visible = false
 	add_child(danger_label)
+
+	caution_label = Label.new()
+	caution_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	caution_label.position = Vector2(-260, 90)
+	caution_label.add_theme_font_size_override("font_size", 18)
+	caution_label.modulate = Color(1, 0.75, 0.15)
+	caution_label.visible = false
+	add_child(caution_label)
+
+	impact_label = Label.new()
+	impact_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	impact_label.position = Vector2(-260, 118)
+	impact_label.add_theme_font_size_override("font_size", 18)
+	impact_label.modulate = Color(1, 0.85, 0.4)
+	impact_label.visible = false
+	add_child(impact_label)
 
 	var top_right := PanelContainer.new()
 	top_right.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -211,6 +264,8 @@ func build() -> void:
 	controls_label.add_theme_font_size_override("font_size", 13)
 	add_child(controls_label)
 
+	_build_key_overlay()
+
 	help_panel = PanelContainer.new()
 	help_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var help_style := StyleBoxFlat.new()
@@ -226,6 +281,32 @@ func build() -> void:
 	help_box.add_child(help_label)
 
 
+## Big WASD-style key cluster, bottom-centre, each cap lighting up the instant
+## its bound action is held — requested explicitly so presses are visible.
+func _build_key_overlay() -> void:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	root.position = Vector2(-177, -172)
+	add_child(root)
+
+	var cap := Vector2(48, 48)
+	key_w = _make_key_cap(root, Vector2(52, 0), cap)
+	key_a = _make_key_cap(root, Vector2(0, 52), cap)
+	key_s = _make_key_cap(root, Vector2(52, 52), cap)
+	key_d = _make_key_cap(root, Vector2(104, 52), cap)
+	key_shift = _make_key_cap(root, Vector2(170, 26), Vector2(70, 48))
+	key_extra = _make_key_cap(root, Vector2(250, 26), cap)
+	key_e = _make_key_cap(root, Vector2(306, 26), cap)
+
+
+func _make_key_cap(parent: Control, pos: Vector2, cap_size: Vector2) -> KeyCap:
+	var k := KeyCap.new()
+	k.position = pos
+	k.size = cap_size
+	parent.add_child(k)
+	return k
+
+
 func toggle_help() -> void:
 	help_visible = not help_visible
 	help_panel.visible = help_visible
@@ -236,12 +317,40 @@ func flash_danger() -> void:
 	_danger_timer = 1.5
 
 
+## Caution is lighter than danger: near the load's safety radius but not
+## actually touching it (see .claude/rules/simulation-physics.md).
+func flash_caution() -> void:
+	if not danger_label.visible:
+		caution_label.visible = true
+		_caution_timer = 0.6
+
+
+## Structure hit (floor/column): a physical bounce already gives the visual
+## feedback, this just names what happened. key: "impact_floor"|"impact_column".
+func flash_impact(key: String) -> void:
+	_impact_key = key
+	impact_label.visible = true
+	_impact_timer = 1.2
+
+
 func update(delta: float, ctx: Dictionary) -> void:
 	if _danger_timer > 0.0:
 		_danger_timer -= delta
 		if _danger_timer <= 0.0:
 			danger_label.visible = false
 	danger_label.text = "!! " + Loc.t("danger_load")
+
+	if _caution_timer > 0.0:
+		_caution_timer -= delta
+		if _caution_timer <= 0.0:
+			caution_label.visible = false
+	caution_label.text = Loc.t("caution_near")
+
+	if _impact_timer > 0.0:
+		_impact_timer -= delta
+		if _impact_timer <= 0.0:
+			impact_label.visible = false
+	impact_label.text = Loc.t(_impact_key)
 
 	var lines := PackedStringArray()
 	lines.append(Loc.t("title"))
@@ -274,7 +383,6 @@ func update(delta: float, ctx: Dictionary) -> void:
 	minimap.pickup = ctx.pickup_zone
 	minimap.dropoff = ctx.dropoff_zone
 	minimap.player_pos = ctx.get("player_xz", null)
-	minimap.in_cabin = ctx.in_cabin
 	minimap.queue_redraw()
 
 	tutorial_label.text = ctx.get("tutorial_text", "")
@@ -288,7 +396,21 @@ func update(delta: float, ctx: Dictionary) -> void:
 			Loc.t("score_swing"), sc.max_swing_deg])
 		obj_lines.append("%s: %d   %s: %d" % [Loc.t("score_hits"), sc.collisions,
 			Loc.t("score_violations"), sc.violations])
+		obj_lines.append("%s: %d" % [Loc.t("score_near_miss"), sc.get("near_misses", 0)])
 	objective_label.text = "\n".join(obj_lines)
 
-	controls_label.text = Loc.t("controls_cabin") if ctx.in_cabin else Loc.t("controls_walk")
+	var controlling: bool = ctx.get("controlling", false)
+	controls_label.text = Loc.t("controls_cabin") if controlling else Loc.t("controls_walk")
 	help_label.text = Loc.t("help_title") + "\n\n" + Loc.t("controls_walk") + "\n\n" + Loc.t("controls_cabin")
+
+	key_w.set_state("W", Input.is_action_pressed("bridge_fwd" if controlling else "move_forward"))
+	key_a.set_state("A", Input.is_action_pressed("trolley_left" if controlling else "move_left"))
+	key_s.set_state("S", Input.is_action_pressed("bridge_back" if controlling else "move_back"))
+	key_d.set_state("D", Input.is_action_pressed("trolley_right" if controlling else "move_right"))
+	key_shift.set_state("SHIFT", Input.is_action_pressed("fine_mode"))
+	if controlling:
+		key_extra.set_state("Q", Input.is_action_pressed("hoist_up"))
+		key_e.set_state("E", Input.is_action_pressed("hoist_down"))
+	else:
+		key_extra.set_state("SPACE", Input.is_action_pressed("jump"))
+		key_e.set_state("E", Input.is_action_pressed("interact"))

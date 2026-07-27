@@ -82,7 +82,7 @@ Use this append-only template:
 
 ## DEC-006 — Fixed operator cabin (pulpit), not a cab that rides the bridge
 - Date: 2026-07-27
-- Status: accepted
+- Status: **SUPERSEDED by DEC-014 (same day)** — the user, drawing on real factory lifting experience, corrected this: this overhead crane class is pendant-operated from the floor, not cabin-operated. Kept for the historical record; do not build against this decision.
 - Context: the user asked for a first-person player who walks to the machine, climbs in, and operates it — matching `01_MASTER_PROMPT_V2.md` §6 "Access and cabin entry" and §8 "cab/first-person", neither of which was implemented before this session.
 - Evidence: real factory overhead cranes are commonly operated either from a pendant control walking the floor or from a fixed elevated pulpit near one end of the runway — both keep the operator's access point static, unlike a mobile/tower crane's cab which travels with the machine.
 - Options considered: (a) a fixed pulpit with a static ladder; (b) a cab physically mounted on the moving trolley, requiring a ladder that also moves.
@@ -147,7 +147,7 @@ Use this append-only template:
 
 ## DEC-011 — CameraDirector: HOME resolves to CABIN/WALK automatically; Tab cycles the other three views; C resets whichever view is active
 - Date: 2026-07-27
-- Status: accepted
+- Status: accepted, **amended by DEC-014 (same day)** — DEC-014 removes the CABIN branch entirely (there is no cabin); HOME is now always first-person. The Tab-cycle / C-reset mechanism described below is unchanged.
 - Context: the user asked for five distinct camera views (cabin/first-person, orbit, hook, top-down) plus the pre-existing orbit-drag-and-reset behaviour from Hito 0, which assumed the orbit camera was the ever-present default.
 - Evidence: `core/camera_director.gd`; `tests/selftest_driver.gd` Phase 7/7b.
 - Options considered: five independent, always-selectable modes with no special-casing; a "HOME" mode that automatically shows CABIN when in the cabin and WALK when on foot, with Tab cycling the three "away" views (ORBIT/HOOK/TOPDOWN) and C returning/resetting.
@@ -183,3 +183,68 @@ Use this append-only template:
 - Risks: none identified.
 - Reversal trigger: user asks to combine milestones in a future session.
 - Files/tests affected: none (process decision).
+
+## DEC-014 — SUPERSEDES DEC-006: pendant control station on the floor, not a cabin — nothing to climb
+- Date: 2026-07-27
+- Status: accepted
+- Context: after playing Hito 1, the user (who has real factory lifting-floor experience) corrected the fixed-cabin design: this class of overhead crane (bovenloopkraan) is normally operated with a pendant/remote control box from a fixed point on the factory floor, not from an elevated cabin. There is nothing to climb.
+- Evidence: user's own operational description in this conversation; real bovenloopkraan installations commonly use a wall/post-mounted pendant station precisely because the operator needs to watch the load from the ground, at a safe distance, not from above it.
+- Options considered: keep the cabin/ladder (wrong per the correction); replace it with a ground-level pendant station the player walks to and "picks up" instantly.
+- Decision: `MachineAccess` drops `CLIMBING_UP`/`CLIMBING_DOWN`/`IN_CABIN` entirely — the only states are `OUTSIDE`, `IN_ZONE`, `CONTROLLING`, and picking the pendant up/putting it down is instantaneous (it's a handheld box, not a structure to climb). `AppSettings.ACCESS_POINT` moves to `Vector3(1.0, 0.0, 9.0)` — x=1.0 is strictly less than `CraneRig.bridge_limits.x` (2.0), so the bridge/trolley can PHYSICALLY never reach the station; this is a provable safe distance, not a tuned approximation. `CameraDirector` loses its CABIN mode; HOME is now always first-person (`_update_walk()` unconditionally), since operating and walking are the same physical situation for this machine.
+- Why: matches how this equipment is actually operated, per the user's direct correction — the previous design was not a stylistic choice, it was factually wrong about the machine.
+- Consequences: `core/world_builder.gd`'s ladder marker is replaced with a control-box/post visual; `slice_overhead/main.gd` drops the climb-interpolation code entirely (`_drive_player()` just freezes the player in place while controlling); the scene selftest's approach phase no longer waits through a climb, so `pendant_pickup_works`/`pendant_putdown_works` resolve within 1-2 ticks of the key press instead of a fixed 2.5s duration.
+- Risks: none identified — this is strictly simpler than what it replaces.
+- Reversal trigger: a future machine (mobile crane, tower crane) whose real operator position genuinely is an elevated, structure-mounted cab — build that fresh for that machine rather than reviving this cabin design.
+- Files/tests affected: `core/machine_access.gd`, `core/camera_director.gd`, `core/world_builder.gd`, `core/settings.gd`, `core/loc.gd`, `core/tutorial_guide.gd`, `slice_overhead/main.gd`, `tests/module_tests.gd`, `tests/selftest_driver.gd`.
+
+## DEC-015 — Load impacts get a real physical response (bounce/damping), applied externally to the trusted integrator
+- Date: 2026-07-27
+- Status: accepted
+- Context: the user explicitly asked for real consequences on impact — "si golpeo algo, quiero que tenga físicas destruidas o de rebote, de inercia, de impacto" — not just detection-and-log (Hito 1's KI-004 scope boundary). They also confirmed the existing swing/inertia physics feel correct and should not be touched.
+- Evidence: `tests/module_tests.gd::_test_load_body_impact_response` — a load penetrating the floor at (0, 0.2, 0) moving down at 3 m/s is corrected to sit exactly on the surface (y=0.45, box-centre convention) with velocity reflected at 0.3 restitution and 0.8 tangential damping; a column penetration is pushed out along the axis of least overlap with the same reflection.
+- Options considered: hand the load to the engine as a dynamic RigidBody3D once near a surface (risks silently diverging from the validated free-swing integrator); keep `cable_load_sim.gd` as the sole source of truth and apply a correction to its public `load_pos`/`load_vel` from `main.gd` whenever a contact is detected, exactly once per tick, after the sim has already integrated.
+- Decision: the external-correction approach. `LoadBody.resolve_floor_contact()` / `resolve_column_contact()` are pure static functions returning a corrected centre/velocity; `main.gd::_resolve_load_impacts()` applies them by writing directly to `sim.load_pos`/`sim.load_vel`. `cable_load_sim.gd` itself is not modified.
+- Why: preserves every pendulum/determinism guarantee already validated (DEC-009's reasoning extends directly here) while still giving a genuine physical consequence — quick taps vs. sustained thrust still produce different momentum through the SAME cable dynamics as before; what's new is what happens when that momentum meets something solid.
+- Consequences: fixed a real, separate bug while implementing this — the floor/column checks had been called with `sim.load_pos` (the cable-attachment point) directly, but `LOAD_SIZE`-based checks assume a box CENTRE, which is `load_pos - (0, 0.5, 0)` per the visual offset already used in `_sync_visuals()`. Contact was firing about 0.5 m too early. Now `main.gd::_load_box_center()` is the single place that offset is applied, and all contact/impact functions take that as input.
+- Risks: restitution/damping constants (0.3 / 0.8) are a reasonable first pass, not tuned against any reference; revisit if bounce feels wrong once visually inspected.
+- Reversal trigger: none expected short of moving to full engine-driven rigid-body physics for the load, which would need its own validation pass against the existing pendulum tests.
+- Files/tests affected: `core/load_body.gd`, `slice_overhead/main.gd`, `tests/module_tests.gd`.
+
+## DEC-016 — Near-miss safety radius, separate from the exact contact box
+- Date: 2026-07-27
+- Status: accepted
+- Context: the user described the real MVP behaviour as "normalmente [el operador] la hace siempre a una distancia prudencial controlando el radio de acción para que no te dé golpe el péndulo ni golpees nada de al lado" — i.e. the skill being trained is staying clear of the load's swing radius, not just avoiding literal contact. This is also explicit in `.claude/rules/simulation-physics.md`: "separate physical collision volumes from safety/near-miss volumes."
+- Evidence: `tests/module_tests.gd::_test_load_safety_radius`; `AppSettings.LOAD_SAFETY_RADIUS_M := 2.0`, larger than `LoadBody.LOAD_SIZE`'s ~0.85 m half-diagonal.
+- Options considered: only flag actual contact (Hito 1's behaviour); add a second, larger radius that triggers a lighter caution rather than a hard violation.
+- Decision: `LoadBody.is_within_safety_radius()` (pure static function) checks a 2.0 m radius around the load's box centre against the player's position. Entering it flashes an amber caution (distinct from the red "contact" danger flash) and increments `Objectives.near_misses` — tracked in the score, but does NOT fail the lift the way an actual collision/violation does.
+- Why: teaches situational awareness (stay clear of the operating envelope) as a distinct, lesser lesson from "never touch the load" (DEC-008) — matching how real lifting-safety training separates "too close" from "struck."
+- Consequences: a translucent red disc (`WorldBuilder.safety_ring`) follows the load's XZ position on the floor each frame, giving a visible, real-time boundary — not just a HUD number.
+- Risks: none identified.
+- Reversal trigger: none expected.
+- Files/tests affected: `core/load_body.gd`, `core/objectives.gd`, `core/world_builder.gd`, `core/hud.gd`, `core/loc.gd`, `slice_overhead/main.gd`.
+
+## DEC-017 — Big on-screen key caps that light up on press, instead of printed control text
+- Date: 2026-07-27
+- Status: accepted
+- Context: the user asked explicitly for game-capture-style controls: "haz los controles más grandes... que se vea dónde estoy pulsando" — confirming small printed text (the existing `controls_label`) wasn't legible/satisfying at a glance.
+- Evidence: `core/hud.gd::KeyCap` — a `Control` subclass drawing a filled rounded rect that swaps colour the instant its bound `Input.is_action_pressed()` reads true.
+- Options considered: enlarge the existing text label; add a dedicated WASD-shaped key cluster with live highlight, the way game-streaming overlays do.
+- Decision: the key cluster. W/A/S/D always shown in their physical layout; SHIFT, and one context-swapped slot (SPACE=jump on foot / Q=hoist-up while controlling), plus E (interact on foot / hoist-down while controlling) — each cap re-checks the CONTEXTUALLY correct action every frame (mirrors the existing dual-purpose key bindings, e.g. W = move_forward on foot, bridge_fwd while controlling).
+- Why: directly answers the request; also visually reinforces which of the two meanings a shared physical key currently has, which is otherwise easy to forget.
+- Consequences: the printed `controls_label` text is kept alongside it (for the less-common keys: V, R, Tab, C, F1, L) — the key cluster covers the keys used constantly, not the full reference.
+- Risks: none identified. Visual placement/sizing has not been visually inspected this session (see KI-008) — the DATA driving each cap (label + pressed state) is unit-verifiable, the LAYOUT is not, without looking at it.
+- Reversal trigger: none expected.
+- Files/tests affected: `core/hud.gd`.
+
+## DEC-018 — Multiple pickup/placement scenario variants (boxes, heights, tight spaces) are the next milestone, not this one
+- Date: 2026-07-27
+- Status: accepted
+- Context: the user asked for several scenario variations in the same message as the pendant-control correction: approach-and-lift-from-boxes, a bigger load, a load wedged between boxes, higher and lower placements. Building new geometry (box stacks) and 4-5 new scenario definitions is a substantial, separable unit of work from the corrections above.
+- Evidence: user's own established pattern this session — "un hito por sesión, verificado y guardado" — and the fact that the corrections in DEC-014..017 already touch nearly every gameplay file in the slice.
+- Options considered: cram the new scenarios into this same session; scope them as the explicit next milestone.
+- Decision: deferred to the next session, building on the now-corrected pendant/collision/bounce foundation (which makes each new scenario cheaper, since the hard parts — access, camera, contact physics, scoring — are already in place and reusable).
+- Why: keeps this session's diff reviewable and verifiable; a foundation correction (pendant control, real bounce physics) is exactly the kind of change that should land and be confirmed working before piling new content on top of it.
+- Consequences: `scenarios/` still holds only SC-001. `objectives.gd`'s data-driven design (pickup/dropoff zones, mass, swing budget all read from a JSON file) already supports adding SC-002+ without further code changes to that module — only new JSON files plus whatever new geometry (box stacks) a given scenario needs.
+- Risks: none identified.
+- Reversal trigger: user asks for it explicitly, accepting the larger session cost.
+- Files/tests affected: none yet (documented scope boundary for the next session).

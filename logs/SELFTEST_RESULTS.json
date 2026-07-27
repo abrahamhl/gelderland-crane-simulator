@@ -2,7 +2,7 @@
   "all_ok": true,
   "checks": [
     {
-      "detail": "in_cabin=false at spawn",
+      "detail": "controlling=false at spawn",
       "id": "player_spawns_on_foot",
       "ok": true
     },
@@ -12,8 +12,8 @@
       "ok": true
     },
     {
-      "detail": "entered cabin after 843 approach ticks (14.1 s)",
-      "id": "cabin_entry_works",
+      "detail": "picked up the pendant after 739 approach ticks (12.3 s)",
+      "id": "pendant_pickup_works",
       "ok": true
     },
     {
@@ -57,7 +57,7 @@
       "ok": true
     },
     {
-      "detail": "rows 1565 -> 1805 over 240 ticks",
+      "detail": "rows 1461 -> 1701 over 240 ticks",
       "id": "telemetry_updates",
       "ok": true
     },
@@ -67,17 +67,17 @@
       "ok": true
     },
     {
-      "detail": "HUD 422 chars, EN/ES bilingual labels present (default pair per DEC-011)",
+      "detail": "HUD 424 chars, EN/ES bilingual labels present (default pair per DEC-011)",
       "id": "hud_populated_bilingual",
       "ok": true
     },
     {
-      "detail": "enabled=true, peak applied wind 12.11 m/s",
+      "detail": "enabled=true, peak applied wind 10.86 m/s",
       "id": "wind_applied",
       "ok": true
     },
     {
-      "detail": "mean lateral offset -0.0542 m (no wind) -> 0.0684 m (wind toward +Z)",
+      "detail": "mean lateral offset -0.0542 m (no wind) -> 0.0543 m (wind toward +Z)",
       "id": "wind_changes_behaviour",
       "ok": true
     },
@@ -87,7 +87,7 @@
       "ok": true
     },
     {
-      "detail": "hook=(13.1, 9.3, 11.7) topdown=(11.6, 42.0, 10.201) cabin=(2.0, 9.3, 2.2) orbit_default=(-0.754586, 10.13525, 3.067076) (all distinct)",
+      "detail": "hook=(13.1, 9.3, 11.7) topdown=(11.6, 42.0, 10.201) home/first-person=(2.681457, 1.650874, 8.631828) orbit_default=(-0.754586, 10.13525, 3.067076) (all distinct)",
       "id": "camera_modes_distinct",
       "ok": true
     },
@@ -97,8 +97,8 @@
       "ok": true
     },
     {
-      "detail": "in_cabin=false, 160 ticks after pressing F",
-      "id": "cabin_exit_works",
+      "detail": "controlling=false, 5 ticks after pressing F",
+      "id": "pendant_putdown_works",
       "ok": true
     },
     {
