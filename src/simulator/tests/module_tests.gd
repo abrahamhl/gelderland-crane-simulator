@@ -6,6 +6,10 @@ extends SceneTree
 const CableLoadSimScript := preload("res://core/cable_load_sim.gd")
 const WindModelScript := preload("res://core/wind_model.gd")
 const TelemetryScript := preload("res://core/telemetry.gd")
+const ObjectivesScript := preload("res://core/objectives.gd")
+const TutorialGuideScript := preload("res://core/tutorial_guide.gd")
+const MachineAccessScript := preload("res://core/machine_access.gd")
+const LoadBodyScript := preload("res://core/load_body.gd")
 
 const DT := 1.0 / 120.0
 
@@ -18,6 +22,13 @@ func _initialize() -> void:
 	_test_zero_wind_determinism()
 	_test_wind_lateral_displacement()
 	_test_nan_stress()
+
+	# Hito 1 additions — pure logic, no scene required (see DECISIONS.md DEC-010).
+	_test_objectives_pickup_and_delivery()
+	_test_objectives_swing_failure()
+	_test_tutorial_guide_steps()
+	_test_machine_access_state_machine()
+	_test_load_body_collision_math()
 
 	var all_ok := true
 	for r in results:
@@ -169,3 +180,133 @@ func _test_nan_stress() -> void:
 	_record("no_nan_or_infinity_under_stress", violations == 0,
 		"%d non-finite observations over %d steps (slack/shock + gusts + hoist sweep)"
 		% [violations, steps])
+
+
+func _sc001_test_scenario() -> Dictionary:
+	return {
+		"pickup": {"x": 0.0, "z": 0.0, "radius": 1.0},
+		"dropoff": {"x": 10.0, "z": 0.0, "radius": 1.0},
+		"pickup_height_tolerance_m": 1.0,
+		"dwell_time_s": 1.0,
+		"max_swing_deg_for_success": 2.0,
+	}
+
+
+## Load stays away -> NOT_STARTED; sits over pickup -> CARRYING; sits over
+## drop-off -> DELIVERED, with a clean pass (no collisions, swing in budget).
+func _test_objectives_pickup_and_delivery() -> void:
+	var obj = ObjectivesScript.new()
+	obj.load_scenario(_sc001_test_scenario())
+	var dt := 1.0 / 60.0
+	for i in 30:
+		obj.update(dt, 5.0, 5.0, 5.0, 0.0, 0, 0)
+	var phase0 := obj.phase_name()
+	for i in 90:
+		obj.update(dt, 0.0, 0.0, 0.5, 0.0, 0, 0)
+	var phase1 := obj.phase_name()
+	for i in 90:
+		obj.update(dt, 10.0, 0.0, 0.5, 0.5, 0, 0)
+	var phase2 := obj.phase_name()
+	var sc: Dictionary = obj.score()
+	_record("objectives_pickup_then_delivery",
+		phase0 == "not_started" and phase1 == "carrying" and phase2 == "delivered" and sc.passed,
+		"phases: %s -> %s -> %s, score.passed=%s (max_swing=%.2f)"
+		% [phase0, phase1, phase2, sc.passed, sc.max_swing_deg])
+
+
+## Same route, but swing exceeds the 2 deg budget while carrying: delivered,
+## yet marked as a failed lift.
+func _test_objectives_swing_failure() -> void:
+	var obj = ObjectivesScript.new()
+	obj.load_scenario(_sc001_test_scenario())
+	var dt := 1.0 / 60.0
+	for i in 90:
+		obj.update(dt, 0.0, 0.0, 0.5, 0.0, 0, 0)
+	for i in 90:
+		obj.update(dt, 10.0, 0.0, 0.5, 5.0, 0, 0)
+	var sc: Dictionary = obj.score()
+	_record("objectives_fails_on_excess_swing",
+		obj.phase_name() == "delivered" and not sc.passed,
+		"delivered=%s passed=%s max_swing=%.2f (limit 2.0)"
+		% [obj.phase_name() == "delivered", sc.passed, sc.max_swing_deg])
+
+
+## Every gate the player can be stuck behind has an explicit instruction —
+## this is the direct fix for "no sé qué hacer" (no hidden 1-2-3 rule).
+func _test_tutorial_guide_steps() -> void:
+	var cases := [
+		[{"access_state": "outside"}, "prompt_approach"],
+		[{"access_state": "in_zone"}, "prompt_in_zone"],
+		[{"access_state": "climbing_up"}, "prompt_climbing"],
+		[{"access_state": "climbing_down"}, "prompt_climbing"],
+		[{"access_state": "in_cabin", "powered": false}, "insp_hint"],
+		[{"access_state": "in_cabin", "powered": true, "objective_phase": "not_started"}, "obj_not_started"],
+		[{"access_state": "in_cabin", "powered": true, "objective_phase": "carrying"}, "obj_carrying"],
+		[{"access_state": "in_cabin", "powered": true, "objective_phase": "delivered"}, "obj_delivered"],
+	]
+	var all_ok := true
+	var detail := ""
+	for c in cases:
+		var got: String = TutorialGuideScript.get_step_id(c[0])
+		if got != c[1]:
+			all_ok = false
+			detail += "state=%s expected=%s got=%s; " % [c[0], c[1], got]
+	_record("tutorial_guide_covers_all_states", all_ok,
+		detail if not all_ok else "%d/%d state cases correct" % [cases.size(), cases.size()])
+
+
+## Approach -> interact -> climb -> in cabin -> exit -> climb down -> outside,
+## driven purely by position + delta, no scene.
+func _test_machine_access_state_machine() -> void:
+	var access = MachineAccessScript.new()
+	var dt := 1.0 / 60.0
+	var access_point := Vector3(2.0, 0.0, 0.75)
+	var radius := 1.6
+	var duration := 2.5
+
+	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius, duration)
+	var s0 := access.state_name()
+	access.update(dt, access_point, access_point, radius, duration)
+	var s1 := access.state_name()
+	var interacted := access.try_interact()
+	var s2 := access.state_name()
+	var steps := int(ceil(duration / dt)) + 2
+	for i in steps:
+		access.update(dt, access_point, access_point, radius, duration)
+	var s3 := access.state_name()
+	var exited := access.try_exit()
+	var s4 := access.state_name()
+	for i in steps:
+		access.update(dt, access_point, access_point, radius, duration)
+	# Climb-down finishes mid-loop and correctly re-detects "still standing at
+	# the ladder foot" as IN_ZONE — step away before reading the final state.
+	access.update(dt, Vector3(20.0, 0.0, 20.0), access_point, radius, duration)
+	var s5 := access.state_name()
+
+	_record("machine_access_full_cycle",
+		s0 == "outside" and s1 == "in_zone" and interacted and s2 == "climbing_up"
+			and s3 == "in_cabin" and exited and s4 == "climbing_down" and s5 == "outside",
+		("outside(%s) -> in_zone(%s) -> interact=%s -> climbing_up(%s) -> in_cabin(%s) "
+			+ "-> exit=%s -> climbing_down(%s) -> outside(%s)")
+			% [s0, s1, interacted, s2, s3, exited, s4, s5])
+
+
+## Pure collision math: any load-person contact is a violation (lifting-safety
+## doctrine, not an energy threshold); AABB overlap; floor/column contact.
+func _test_load_body_collision_math() -> void:
+	var danger: bool = LoadBodyScript.is_dangerous_impact(Vector3(0.1, 0.0, 0.0), 500.0)
+	var push: Vector3 = LoadBodyScript.compute_push_velocity(Vector3(1.0, 0.0, 0.0))
+	var overlap_yes: bool = LoadBodyScript.aabb_overlap(
+		Vector3.ZERO, Vector3(1, 1, 1), Vector3(0.4, 0, 0), Vector3(1, 1, 1))
+	var overlap_no: bool = LoadBodyScript.aabb_overlap(
+		Vector3.ZERO, Vector3(1, 1, 1), Vector3(5, 0, 0), Vector3(1, 1, 1))
+	var floor_hit: bool = LoadBodyScript.check_floor_contact(Vector3(0, 0.3, 0))
+	var floor_clear: bool = LoadBodyScript.check_floor_contact(Vector3(0, 5.0, 0))
+	var columns := [{"pos": Vector3(2, 4.35, 0.75), "size": Vector3(0.4, 8.7, 0.4)}]
+	var col_hit: bool = LoadBodyScript.check_column_contact(Vector3(2, 4.0, 0.75), columns)
+	var col_clear: bool = LoadBodyScript.check_column_contact(Vector3(20, 4.0, 0.75), columns)
+	_record("load_body_collision_math",
+		danger and push.length() > 0.0 and overlap_yes and not overlap_no
+			and floor_hit and not floor_clear and col_hit and not col_clear,
+		"danger=%s push_len=%.2f overlap(yes/no)=%s/%s floor(hit/clear)=%s/%s column(hit/clear)=%s/%s"
+		% [danger, push.length(), overlap_yes, overlap_no, floor_hit, floor_clear, col_hit, col_clear])

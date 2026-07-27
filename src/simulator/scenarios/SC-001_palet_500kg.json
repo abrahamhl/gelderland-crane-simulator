@@ -1,0 +1,19 @@
+{
+  "id": "SC-001",
+  "title": {
+    "en": "Move the concrete pallet",
+    "es": "Traslada el palé de hormigón",
+    "nl": "Verplaats de betonpallet"
+  },
+  "briefing": {
+    "en": "Pick up the 500 kg pallet from Zone A and set it down in Zone B. Keep the load steady — swing over 2 degrees during transport fails the lift.",
+    "es": "Recoge el palé de 500 kg de la Zona A y deposítalo en la Zona B. Mantén la carga estable — un balanceo superior a 2 grados durante el transporte hace fallar el izado.",
+    "nl": "Til de pallet van 500 kg op vanuit Zone A en zet hem neer in Zone B. Houd de last stabiel."
+  },
+  "mass_kg": 500.0,
+  "pickup": {"x": 10.0, "z": 9.0, "radius": 1.8, "color": [0.95, 0.85, 0.1, 0.55]},
+  "dropoff": {"x": 22.0, "z": 5.0, "radius": 1.8, "color": [0.15, 0.55, 0.95, 0.55]},
+  "pickup_height_tolerance_m": 1.2,
+  "dwell_time_s": 1.0,
+  "max_swing_deg_for_success": 2.0
+}

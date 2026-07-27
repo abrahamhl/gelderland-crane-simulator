@@ -1,21 +1,32 @@
 extends Node3D
-## Slice 001 — overhead-crane physics proof (prefab hall, Gelderland).
-## Wires the existing deterministic modules (CraneRig, CableLoadSim, WindModel,
-## Telemetry) into one playable scene: unpowered start with pre-use inspection,
-## bilingual HUD, orbit camera, seeded wind, deterministic reset.
-## Geometry is built procedurally so the whole slice is reviewable as code.
+## Slice 001 — overhead-crane playable proof (prefab hall, Gelderland).
+## Orchestrator: world geometry, on-foot player, crane cabin access, camera
+## director, HUD/tutorial and the SC-001 pickup/drop-off objective are all
+## composed here from separate, mostly-unit-testable modules. The four
+## original physics modules (CraneRig, CableLoadSim, WindModel, Telemetry)
+## are wired in unchanged — see DECISIONS.md DEC-005..DEC-009 for the H1
+## design choices (fixed cabin, always-advancing wind, R resets the machine
+## not the operator's position, etc).
 
 const CraneRigScript := preload("res://core/crane_rig.gd")
 const CableLoadSimScript := preload("res://core/cable_load_sim.gd")
 const WindModelScript := preload("res://core/wind_model.gd")
 const TelemetryScript := preload("res://core/telemetry.gd")
+const PlayerControllerScript := preload("res://core/player_controller.gd")
+const CameraDirectorScript := preload("res://core/camera_director.gd")
+const WorldBuilderScript := preload("res://core/world_builder.gd")
+const MachineAccessScript := preload("res://core/machine_access.gd")
+const LoadBodyScript := preload("res://core/load_body.gd")
+const ObjectivesScript := preload("res://core/objectives.gd")
+const TutorialGuideScript := preload("res://core/tutorial_guide.gd")
+const HudScript := preload("res://core/hud.gd")
+
+const SCENARIO_PATH := "res://scenarios/SC-001_palet_500kg.json"
+const LADDER_BOTTOM := Vector3(2.35, 0.3, 1.3)
+const LADDER_TOP := Vector3(2.0, 8.7, 1.8)
 
 const DT := 1.0 / 60.0
 const SUBSTEPS := 2              # cable sim runs at 120 Hz inside the 60 Hz tick
-
-const CAM_YAW_DEFAULT := 210.0   # degrees
-const CAM_PITCH_DEFAULT := 18.0
-const CAM_DIST_DEFAULT := 15.0
 
 var rig: RefCounted
 var sim: RefCounted
@@ -28,42 +39,80 @@ var inspection := [false, false, false]
 var elapsed_ticks := 0
 var halted := false
 
-var cam_yaw := 0.0
-var cam_pitch := 0.0
-var cam_dist := 0.0
-
-var camera: Camera3D
-var girder: MeshInstance3D
-var truck_a: MeshInstance3D
-var truck_b: MeshInstance3D
-var trolley: MeshInstance3D
-var cable_mesh: MeshInstance3D
-var load_box: MeshInstance3D
-var status_label: Label
-var controls_label: Label
+var world: Node3D
+var player: CharacterBody3D
+var cam: Node3D
+var access: RefCounted
+var load_body: Area3D
+var objectives: RefCounted
+var hud: CanvasLayer
+var scenario: Dictionary
 
 var _prev_action := {}
+var _prev_floor_contact := false
+var _prev_column_contact := false
+var _tick_collisions := 0
+var _tick_violations := 0
 
 
 func _ready() -> void:
-	_build_environment()
-	_build_crane_visuals()
-	_build_camera()
-	_build_hud()
+	world = WorldBuilderScript.new()
+	add_child(world)
+
+	access = MachineAccessScript.new()
+	objectives = ObjectivesScript.new()
+	scenario = ObjectivesScript.load_from_file(SCENARIO_PATH)
+	if not scenario.is_empty():
+		scenario.pickup = AppSettings.PICKUP_ZONE
+		scenario.dropoff = AppSettings.DROPOFF_ZONE
+	objectives.load_scenario(scenario)
+
+	world.build()
+
+	player = PlayerControllerScript.new()
+	player.add_to_group("player")
+	player.position = AppSettings.PLAYER_SPAWN
+	add_child(player)
+
+	load_body = LoadBodyScript.new()
+	add_child(load_body)
+	load_body.player_hit.connect(_on_load_hit_player)
+
+	cam = CameraDirectorScript.new()
+	cam.player = player
+	cam.in_cabin_getter = Callable(access, "is_in_cabin")
+	add_child(cam)
+
+	hud = HudScript.new()
+	add_child(hud)
+	hud.build()
+
+	if not OS.get_cmdline_user_args().has("--selftest"):
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
 	_reset_all()
+
 	if "--selftest" in OS.get_cmdline_user_args():
 		var driver_script: GDScript = load("res://tests/selftest_driver.gd")
 		add_child(driver_script.new())
 
 
 func _physics_process(_delta: float) -> void:
+	access.update(DT, player.global_position, AppSettings.ACCESS_POINT,
+		AppSettings.ACCESS_RADIUS_M, AppSettings.CLIMB_DURATION_S)
 	_handle_discrete_actions()
+	_drive_player_or_climb()
+
 	if halted:
 		return
 
-	var cmd_bridge := Input.get_axis("bridge_back", "bridge_fwd")
-	var cmd_trolley := Input.get_axis("trolley_left", "trolley_right")
-	var cmd_hoist := Input.get_axis("hoist_up", "hoist_down")  # + = pay out
+	var cmd_bridge := 0.0
+	var cmd_trolley := 0.0
+	var cmd_hoist := 0.0
+	if access.is_in_cabin():
+		cmd_bridge = Input.get_axis("bridge_back", "bridge_fwd")
+		cmd_trolley = Input.get_axis("trolley_left", "trolley_right")
+		cmd_hoist = Input.get_axis("hoist_up", "hoist_down")
 	rig.step(DT, cmd_bridge, cmd_trolley, cmd_hoist,
 		Input.is_action_pressed("fine_mode"))
 	sim.cable_length = rig.hoist_length
@@ -88,14 +137,54 @@ func _physics_process(_delta: float) -> void:
 	telemetry.record(elapsed_ticks * DT, sim.load_pos, sim.support_pos,
 		sim.tension, rad_to_deg(sim.swing_angle_rad()), applied_wind)
 
+	load_body.sync_to_sim(sim.load_pos)
+	_check_structure_contacts()
+	objectives.update(DT, sim.load_pos.x, sim.load_pos.z, _load_bottom_height(),
+		rad_to_deg(sim.swing_angle_rad()), _tick_collisions, _tick_violations)
+	_tick_collisions = 0
+	_tick_violations = 0
+
 
 func _process(delta: float) -> void:
-	_update_camera(delta)
+	cam.rig = rig
+	cam.sim = sim
+	cam.update(delta)
 	_sync_visuals()
-	_update_hud()
+	_update_hud(delta)
 
 
-# --- input -----------------------------------------------------------------
+# --- per-frame visuals ------------------------------------------------------
+
+func _sync_visuals() -> void:
+	if rig == null:
+		return
+	var bx: float = rig.bridge_x
+	world.girder.position.x = bx
+	world.truck_a.position.x = bx
+	world.truck_b.position.x = bx
+	world.trolley.position = Vector3(bx, 8.9, rig.trolley_z)
+	var sup: Vector3 = sim.support_pos
+	var lp: Vector3 = sim.load_pos
+	world.load_box.position = lp + Vector3(0.0, -0.5, 0.0)
+	_update_cable_visual(sup, lp)
+
+
+func _update_cable_visual(a: Vector3, b: Vector3) -> void:
+	var d := b - a
+	var l := d.length()
+	world.cable_mesh.visible = l > 0.01
+	if not world.cable_mesh.visible:
+		return
+	var y := d / l
+	var x := y.cross(Vector3.FORWARD)
+	if x.length() < 0.01:
+		x = y.cross(Vector3.RIGHT)
+	x = x.normalized()
+	var z := x.cross(y)
+	world.cable_mesh.global_transform = Transform3D(Basis(x, y * l, z), (a + b) * 0.5)
+
+
+# --- input -------------------------------------------------------------
 
 ## Edge detector that works for both hardware keys and Input.action_press
 ## injected by the self-test, independent of node processing order.
@@ -107,23 +196,58 @@ func _edge(action: String) -> bool:
 
 
 func _handle_discrete_actions() -> void:
-	for i in 3:
-		if _edge("inspect_%d" % (i + 1)):
-			inspection[i] = true
-			if inspection.count(true) == 3 and not rig.powered:
-				rig.powered = true
+	if access.is_in_cabin():
+		for i in 3:
+			if _edge("inspect_%d" % (i + 1)):
+				inspection[i] = true
+				if inspection.count(true) == 3 and not rig.powered:
+					rig.powered = true
 	if _edge("wind_toggle"):
 		wind_enabled = not wind_enabled
 	if _edge("lang_toggle"):
 		Loc.cycle()
+	if _edge("camera_cycle"):
+		cam.cycle_mode()
 	if _edge("cam_reset"):
-		_reset_camera()
+		if cam.mode == cam.Mode.ORBIT:
+			cam.reset_orbit()
+		else:
+			cam.go_home()
+	if _edge("help_toggle"):
+		hud.toggle_help()
+	if _edge("toggle_mouse_capture"):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE \
+			if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
+	if _edge("interact") and access.state == access.State.IN_ZONE:
+		access.try_interact()
+	if _edge("exit_cabin") and access.is_in_cabin():
+		access.try_exit()
 	if _edge("sim_reset"):
 		_reset_all()
 
 
-# --- lifecycle -------------------------------------------------------------
+func _drive_player_or_climb() -> void:
+	if access.is_climbing():
+		player.move_enabled = false
+		var t: float = access.climb_progress()
+		player.global_position = LADDER_BOTTOM.lerp(LADDER_TOP, t) if access.climbing_up() \
+			else LADDER_TOP.lerp(LADDER_BOTTOM, t)
+		player.velocity = Vector3.ZERO
+		return
+	if access.is_in_cabin():
+		player.move_enabled = false
+		player.global_position = LADDER_TOP
+		player.velocity = Vector3.ZERO
+		return
+	player.move_enabled = true
+	player.physics_step(DT)
 
+
+# --- lifecycle -----------------------------------------------------------
+
+## Resets the MACHINE (rig, cable, wind, telemetry, objective) — a training
+## "retry". Does not move the operator: pressing R inside the cabin resets
+## the lift, it does not eject you back onto the factory floor.
 func _reset_all() -> void:
 	rig = CraneRigScript.new()
 	rig.hoist_length = AppSettings.START_CABLE_LEN_M
@@ -141,216 +265,130 @@ func _reset_all() -> void:
 	inspection = [false, false, false]
 	elapsed_ticks = 0
 	halted = false
-	_reset_camera()
+	_prev_floor_contact = false
+	_prev_column_contact = false
+	objectives.load_scenario(scenario)
+	cam.reset_orbit()
 
 
-func _reset_camera() -> void:
-	cam_yaw = deg_to_rad(CAM_YAW_DEFAULT)
-	cam_pitch = deg_to_rad(CAM_PITCH_DEFAULT)
-	cam_dist = CAM_DIST_DEFAULT
-	_apply_camera()
+# --- structure / player collision -----------------------------------------
+
+func _load_bottom_height() -> float:
+	return sim.load_pos.y - 0.95  # load_pos is the cable attachment point
 
 
-# --- camera ----------------------------------------------------------------
+func _check_structure_contacts() -> void:
+	var floor_hit: bool = LoadBodyScript.check_floor_contact(sim.load_pos)
+	var column_hit: bool = LoadBodyScript.check_column_contact(sim.load_pos, world.columns)
+	if floor_hit and not _prev_floor_contact:
+		_tick_collisions += 1
+		_tick_violations += 1
+		load_body.hits_count += 1
+		load_body.violations_count += 1
+	if column_hit and not _prev_column_contact:
+		_tick_collisions += 1
+		_tick_violations += 1
+		load_body.hits_count += 1
+		load_body.violations_count += 1
+	_prev_floor_contact = floor_hit
+	_prev_column_contact = column_hit
 
-func _update_camera(delta: float) -> void:
-	cam_yaw += Input.get_axis("cam_orbit_right", "cam_orbit_left") * 1.6 * delta
-	cam_pitch = clampf(
-		cam_pitch + Input.get_axis("cam_orbit_down", "cam_orbit_up") * 1.2 * delta,
-		deg_to_rad(5.0), deg_to_rad(80.0))
-	cam_dist = clampf(
-		cam_dist + Input.get_axis("cam_zoom_in", "cam_zoom_out") * 8.0 * delta,
-		5.0, 40.0)
-	_apply_camera()
 
-
-func _apply_camera() -> void:
-	if camera == null or rig == null:
+func _on_load_hit_player(push_velocity: Vector3) -> void:
+	if access.is_in_cabin():
 		return
-	var pivot := Vector3(rig.bridge_x, 5.5, rig.trolley_z)
-	var offset := Vector3(
-		cos(cam_yaw) * cos(cam_pitch),
-		sin(cam_pitch),
-		sin(cam_yaw) * cos(cam_pitch)) * cam_dist
-	camera.position = pivot + offset
-	camera.look_at(pivot)
+	_tick_collisions += 1
+	_tick_violations += 1
+	player.velocity += push_velocity
+	hud.flash_danger()
 
 
-# --- scene construction ----------------------------------------------------
+# --- HUD / tutorial --------------------------------------------------------
 
-func _box(size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.7
-	mesh.material = mat
-	mi.mesh = mesh
-	mi.position = pos
-	add_child(mi)
-	return mi
-
-
-func _build_environment() -> void:
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.13, 0.15, 0.18)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.75, 0.78, 0.82)
-	env.ambient_light_energy = 0.7
-	var we := WorldEnvironment.new()
-	we.environment = env
-	add_child(we)
-
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
-	sun.shadow_enabled = true
-	add_child(sun)
-
-	var concrete := Color(0.32, 0.33, 0.35)
-	var structure := Color(0.45, 0.47, 0.5)
-	_box(Vector3(64.0, 0.2, 22.0), Vector3(30.0, -0.1, 9.0), concrete)  # floor
-	_box(Vector3(64.0, 0.01, 0.12), Vector3(30.0, 0.006, 3.0),
-		Color(0.85, 0.75, 0.2))  # walkway marking
-	for xi in 8:
-		var x := 2.0 + float(xi) * 8.0
-		_box(Vector3(0.4, 8.7, 0.4), Vector3(x, 4.35, 0.75), structure)
-		_box(Vector3(0.4, 8.7, 0.4), Vector3(x, 4.35, 17.25), structure)
-	var rail := Color(0.55, 0.35, 0.2)
-	_box(Vector3(60.0, 0.3, 0.3), Vector3(30.0, 8.85, 0.75), rail)   # runway
-	_box(Vector3(60.0, 0.3, 0.3), Vector3(30.0, 8.85, 17.25), rail)  # runway
+func _tutorial_text() -> String:
+	var step_id := TutorialGuideScript.get_step_id({
+		"access_state": access.state_name(),
+		"powered": rig.powered,
+		"objective_phase": objectives.phase_name(),
+	})
+	if step_id == "insp_hint":
+		var missing := PackedStringArray()
+		var keys := ["insp_1", "insp_2", "insp_3"]
+		for i in 3:
+			if not inspection[i]:
+				missing.append("%d %s" % [i + 1, Loc.t(keys[i])])
+		return "%s: %s" % [Loc.t("insp_hint"), ", ".join(missing)]
+	return Loc.t(step_id)
 
 
-func _build_crane_visuals() -> void:
-	var steel := Color(0.2, 0.45, 0.75)
-	girder = _box(Vector3(0.5, 0.5, 18.0), Vector3(10.0, 9.25, 9.0), steel)
-	truck_a = _box(Vector3(1.2, 0.35, 0.6), Vector3(10.0, 8.95, 0.75), steel)
-	truck_b = _box(Vector3(1.2, 0.35, 0.6), Vector3(10.0, 8.95, 17.25), steel)
-	trolley = _box(Vector3(0.9, 0.4, 0.9), Vector3(10.0, 8.9, 9.0),
-		Color(0.85, 0.55, 0.1))
-	load_box = _box(Vector3(1.2, 0.9, 1.2), Vector3(10.0, 3.5, 9.0),
-		Color(0.75, 0.6, 0.15))
-
-	cable_mesh = MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.02
-	cyl.bottom_radius = 0.02
-	cyl.height = 1.0
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.1, 0.1, 0.1)
-	cyl.material = mat
-	cable_mesh.mesh = cyl
-	add_child(cable_mesh)
+## Picks a language field from a raw {en,es,nl} scenario dict, mirroring
+## Loc.t()'s combination rule without needing the string to live in loc.gd.
+func _scenario_text(field: Dictionary) -> String:
+	if field.is_empty():
+		return ""
+	match Loc.lang:
+		Loc.LANG_EN:
+			return field.get("en", "")
+		Loc.LANG_ES:
+			return field.get("es", field.get("en", ""))
+		Loc.LANG_NL:
+			return field.get("nl", field.get("en", ""))
+		_:
+			return "%s / %s" % [field.get("en", ""), field.get("es", "")]
 
 
-func _build_camera() -> void:
-	camera = Camera3D.new()
-	camera.position = Vector3(0.0, 8.0, -10.0)  # placeholder; reset positions it
-	add_child(camera)
-	camera.current = true
+func _update_hud(delta: float) -> void:
+	var ctx := {
+		"halted": halted,
+		"powered": rig.powered,
+		"inspection": inspection,
+		"cable_length": rig.hoist_length,
+		"bridge_x": rig.bridge_x,
+		"trolley_z": rig.trolley_z,
+		"time_s": elapsed_ticks * DT,
+		"telemetry_rows": telemetry.count(),
+		"camera_view": cam.active_view_name(),
+		"swing_deg": rad_to_deg(sim.swing_angle_rad()),
+		"tension_n": sim.tension,
+		"mass_kg": AppSettings.LOAD_MASS_KG,
+		"wind": applied_wind,
+		"wind_speed": applied_wind.length(),
+		"pickup_zone": AppSettings.PICKUP_ZONE,
+		"dropoff_zone": AppSettings.DROPOFF_ZONE,
+		"in_cabin": access.is_in_cabin(),
+		"player_xz": Vector2(player.global_position.x, player.global_position.z),
+		"tutorial_text": _tutorial_text(),
+		"objective_text": "%s\n%s" % [_scenario_text(scenario.get("title", {})),
+			_obj_phase_text()],
+		"score": objectives.score(),
+	}
+	hud.update(delta, ctx)
 
 
-func _build_hud() -> void:
-	var layer := CanvasLayer.new()
-	add_child(layer)
-	var panel := PanelContainer.new()
-	panel.position = Vector2(8.0, 8.0)
-	layer.add_child(panel)
-	var margin := MarginContainer.new()
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 8)
-	panel.add_child(margin)
-	var vbox := VBoxContainer.new()
-	margin.add_child(vbox)
-	status_label = Label.new()
-	controls_label = Label.new()
-	controls_label.modulate = Color(1.0, 1.0, 1.0, 0.75)
-	for l in [status_label, controls_label]:
-		l.add_theme_font_size_override("font_size", 13)
-		vbox.add_child(l)
-
-
-# --- per-frame visuals and HUD --------------------------------------------
-
-func _sync_visuals() -> void:
-	if rig == null:
-		return
-	var bx: float = rig.bridge_x
-	girder.position.x = bx
-	truck_a.position.x = bx
-	truck_b.position.x = bx
-	trolley.position = Vector3(bx, 8.9, rig.trolley_z)
-	var sup: Vector3 = sim.support_pos
-	var lp: Vector3 = sim.load_pos
-	load_box.position = lp + Vector3(0.0, -0.5, 0.0)
-	_update_cable_visual(sup, lp)
-
-
-func _update_cable_visual(a: Vector3, b: Vector3) -> void:
-	var d := b - a
-	var l := d.length()
-	cable_mesh.visible = l > 0.01
-	if not cable_mesh.visible:
-		return
-	var y := d / l
-	var x := y.cross(Vector3.FORWARD)
-	if x.length() < 0.01:
-		x = y.cross(Vector3.RIGHT)
-	x = x.normalized()
-	var z := x.cross(y)
-	cable_mesh.global_transform = Transform3D(Basis(x, y * l, z), (a + b) * 0.5)
-
-
-func _update_hud() -> void:
-	if rig == null:
-		return
-	var lines := PackedStringArray()
-	lines.append(Loc.t("title"))
-	if halted:
-		lines.append("!! " + Loc.t("fault"))
-	var power_s: String = Loc.t("on") if rig.powered else Loc.t("off")
-	var insp := PackedStringArray()
-	for i in 3:
-		insp.append("%d[%s]" % [i + 1, "x" if inspection[i] else " "])
-	lines.append("%s: %s   %s: %s" % [Loc.t("power"), power_s,
-		Loc.t("inspection"), " ".join(insp)])
-	if not rig.powered:
-		lines.append("-> %s: 1 %s, 2 %s, 3 %s" % [Loc.t("insp_hint"),
-			Loc.t("insp_1"), Loc.t("insp_2"), Loc.t("insp_3")])
-	lines.append("%s: %.2f m   %s: %.0f kg" % [Loc.t("cable"),
-		rig.hoist_length, Loc.t("mass"), AppSettings.LOAD_MASS_KG])
-	lines.append("%s: %.2f deg   %s: %.2f kN" % [Loc.t("swing"),
-		rad_to_deg(sim.swing_angle_rad()), Loc.t("tension"),
-		sim.tension / 1000.0])
-	var wind_s: String
-	if wind_enabled:
-		wind_s = "%.1f m/s (%.1f, %.1f, %.1f)" % [applied_wind.length(),
-			applied_wind.x, applied_wind.y, applied_wind.z]
-	else:
-		wind_s = Loc.t("off")
-	lines.append("%s: %s" % [Loc.t("wind"), wind_s])
-	lines.append("%s: %.2f m   %s: %.2f m" % [Loc.t("bridge"), rig.bridge_x,
-		Loc.t("trolley"), rig.trolley_z])
-	lines.append("%s: %.1f s   %d %s" % [Loc.t("time"), elapsed_ticks * DT,
-		telemetry.count(), Loc.t("rows")])
-	status_label.text = "\n".join(lines)
-	controls_label.text = Loc.t("controls")
+func _obj_phase_text() -> String:
+	match objectives.phase_name():
+		"carrying": return Loc.t("obj_carrying")
+		"delivered": return Loc.t("obj_delivered")
+		_: return Loc.t("obj_not_started")
 
 
 # --- accessors used by the self-test driver --------------------------------
 
+func is_in_cabin() -> bool:
+	return access.is_in_cabin()
+
+
 func get_camera_transform() -> Transform3D:
-	return camera.global_transform
+	return cam.camera.global_transform
 
 
 func cable_visible() -> bool:
-	return cable_mesh.visible
+	return world.cable_mesh.visible
 
 
 func cable_visual_length() -> float:
-	return cable_mesh.basis.y.length()
+	return world.cable_mesh.basis.y.length()
 
 
 func hud_status_text() -> String:
-	return status_label.text
+	return hud.status_label.text

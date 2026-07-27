@@ -2,7 +2,7 @@
   "all_ok": true,
   "date": "2026-07-17",
   "godot": "4.6.3-stable (official)",
-  "passed": 7,
+  "passed": 12,
   "suite": "slice001_module_tests",
   "tests": [
     {
@@ -39,7 +39,32 @@
       "detail": "0 non-finite observations over 3600 steps (slack/shock + gusts + hoist sweep)",
       "id": "no_nan_or_infinity_under_stress",
       "ok": true
+    },
+    {
+      "detail": "phases: not_started -> carrying -> delivered, score.passed=true (max_swing=0.50)",
+      "id": "objectives_pickup_then_delivery",
+      "ok": true
+    },
+    {
+      "detail": "delivered=true passed=false max_swing=5.00 (limit 2.0)",
+      "id": "objectives_fails_on_excess_swing",
+      "ok": true
+    },
+    {
+      "detail": "8/8 state cases correct",
+      "id": "tutorial_guide_covers_all_states",
+      "ok": true
+    },
+    {
+      "detail": "outside(outside) -> in_zone(in_zone) -> interact=true -> climbing_up(climbing_up) -> in_cabin(in_cabin) -> exit=true -> climbing_down(climbing_down) -> outside(outside)",
+      "id": "machine_access_full_cycle",
+      "ok": true
+    },
+    {
+      "detail": "danger=true push_len=3.35 overlap(yes/no)=true/false floor(hit/clear)=true/false column(hit/clear)=true/false",
+      "id": "load_body_collision_math",
+      "ok": true
     }
   ],
-  "total": 7
+  "total": 12
 }

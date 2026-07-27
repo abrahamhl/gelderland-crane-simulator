@@ -3,11 +3,107 @@ extends Node
 ## when the scene is launched with `-- --selftest [--out=ABS_DIR]`.
 ## Drives the real input actions tick-by-tick, asserts every success criterion,
 ## writes JSON results, exits 0 on full pass / 1 on any failure.
+##
+## Structure: a condition-driven APPROACH pre-phase (walk to the ladder,
+## collision-probe a column, climb into the cabin) runs on `pre_tick`, using
+## dynamic steering rather than a fixed schedule since real-world walk time
+## depends on physics. Once the player is in the cabin, `tick` starts at 0
+## and everything below is the ORIGINAL Hito-0 fixed-tick schedule, unchanged
+## except: the bilingual HUD check (now EN/ES by default, not EN/NL) and the
+## camera phase (Tab into ORBIT first, since HOME now means CABIN/WALK — see
+## DECISIONS.md DEC-011). A cabin-exit check is appended after the original
+## finish point.
 
 var main: Node3D
 var tick := -1
 var checks: Array = []
 var out_dir := ""
+
+var pre_tick := -1
+var entered_cabin := false
+const APPROACH_COLUMN_Z := 0.75  # column at world x=10 the spawn point walks straight into
+var _collision_sample_a := Vector3.INF
+var _collision_sample_b := Vector3.INF
+var _collision_checked := false
+var _pre_finish_ticks := 0
+var _interact_press_pt := -1
+
+
+func _phase_approach(pt: int) -> void:
+	if pt == 0:
+		_check("player_spawns_on_foot", not main.is_in_cabin(),
+			"in_cabin=%s at spawn" % main.is_in_cabin())
+
+	# Sub-phase A (pt < 420): walk straight into the column at x=10 the spawn
+	# sits in front of — proves real CharacterBody3D collision, not just a
+	# math check. Sub-phase B (pt >= 420): closed-loop steer toward the
+	# ladder's access point and climb in. Column contact (spawn is at x=10,
+	# same as the column) happens ~5.8s (~346 ticks) into a straight walk at
+	# 2.2 m/s from z=14 to the column face at z~0.95; both samples are taken
+	# well after that so a real block reads as "no further motion", not as
+	# "still approaching".
+	if pt < 600:
+		Input.action_press("move_forward")
+		if pt == 500:
+			_collision_sample_a = main.player.global_position
+		if pt == 560:
+			_collision_sample_b = main.player.global_position
+			var moved := _collision_sample_a.distance_to(_collision_sample_b)
+			_check("player_blocked_by_column",
+				moved < 0.05 and main.player.global_position.z > APPROACH_COLUMN_Z,
+				"drift over 60 ticks while pressing forward into the column: %.4f m (pos.z=%.2f)"
+				% [moved, main.player.global_position.z])
+			_collision_checked = true
+		return
+	if pt == 600:
+		Input.action_release("move_forward")
+
+	if not main.access.is_in_cabin() and not main.access.is_climbing():
+		var to_access: Vector3 = AppSettings.ACCESS_POINT - main.player.global_position
+		if to_access.z < -0.15:
+			Input.action_press("move_forward"); Input.action_release("move_back")
+		elif to_access.z > 0.15:
+			Input.action_press("move_back"); Input.action_release("move_forward")
+		else:
+			Input.action_release("move_forward"); Input.action_release("move_back")
+		if to_access.x < -0.15:
+			Input.action_press("move_left"); Input.action_release("move_right")
+		elif to_access.x > 0.15:
+			Input.action_press("move_right"); Input.action_release("move_left")
+		else:
+			Input.action_release("move_left"); Input.action_release("move_right")
+		Input.action_press("fine_mode")
+		# Press/release must land on DIFFERENT ticks: main.gd's edge detector
+		# runs once per frame, before this driver's own frame — a press and
+		# release in the same call is invisible to it (see DECISIONS.md
+		# DEC-012, the same one-tick-held pattern already used below for
+		# inspect_1/2/3, bridge_fwd, etc).
+		if main.access.state_name() == "in_zone" and _interact_press_pt < 0:
+			Input.action_release("move_forward")
+			Input.action_release("move_back")
+			Input.action_release("move_left")
+			Input.action_release("move_right")
+			Input.action_release("fine_mode")
+			_press("interact")
+			_interact_press_pt = pt
+		elif _interact_press_pt >= 0 and pt == _interact_press_pt + 1:
+			_release("interact")
+	elif main.access.is_climbing():
+		Input.action_release("move_forward")
+		Input.action_release("move_back")
+		Input.action_release("move_left")
+		Input.action_release("move_right")
+
+	if main.is_in_cabin():
+		_check("cabin_entry_works", true,
+			"entered cabin after %d approach ticks (%.1f s)" % [pt, pt / 60.0])
+		return
+
+	if pt > 1400:
+		_check("cabin_entry_works", false,
+			"did not reach cabin within %d approach ticks" % pt)
+		# Force progress so the rest of the suite can still run and report.
+		main.access.state = main.access.State.IN_CABIN
 
 var bridge_x0 := 0.0
 var trolley_z0 := 0.0
@@ -22,6 +118,9 @@ var wind_max_mag := 0.0
 var tel_rows_560 := 0
 var cam_default: Transform3D
 var cam_orbited := false
+var cam_hook_xf: Transform3D
+var cam_topdown_xf: Transform3D
+var cam_cabin_xf: Transform3D
 var nan_violations := 0
 
 var seg_base := -1
@@ -52,6 +151,13 @@ func _release(a: String) -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	if not entered_cabin:
+		pre_tick += 1
+		_phase_approach(pre_tick)
+		if main.is_in_cabin():
+			entered_cabin = true
+		return
+
 	tick += 1
 
 	if not (main.sim.load_pos.is_finite() and main.sim.load_vel.is_finite()
@@ -138,8 +244,9 @@ func _physics_process(_delta: float) -> void:
 			"cable visual %.3f m vs sim %.3f m" % [clen, expect])
 		var hud: String = main.hud_status_text()
 		_check("hud_populated_bilingual",
-			"Kabellengte" in hud and "Cable length" in hud and hud.length() > 40,
-			"HUD %d chars, bilingual labels present" % hud.length())
+			"Cable length" in hud and "Longitud de cable" in hud and hud.length() > 40,
+			"HUD %d chars, EN/ES bilingual labels present (default pair per DEC-011)"
+			% hud.length())
 
 	# Phase 6 — wind changes behaviour.
 	if tick == 970: _press("wind_toggle")
@@ -158,7 +265,11 @@ func _physics_process(_delta: float) -> void:
 			"mean lateral offset %.4f m (no wind) -> %.4f m (wind toward +Z)"
 			% [mean_pre, mean_wind])
 
-	# Phase 7 — camera orbit + camera reset.
+	# Phase 7 — camera modes + orbit + camera reset. HOME resolves to CABIN
+	# while in the cabin (DEC-011), so Tab into ORBIT before exercising the
+	# orbit-drag + reset behaviour that Hito 0 originally tested bare.
+	if tick == 1670: _press("camera_cycle")   # HOME -> ORBIT
+	if tick == 1671: _release("camera_cycle")
 	if tick == 1678:
 		cam_default = main.get_camera_transform()
 	if tick == 1680:
@@ -174,6 +285,27 @@ func _physics_process(_delta: float) -> void:
 			cam_orbited and main.get_camera_transform().is_equal_approx(cam_default),
 			"orbited=%s, transform restored=%s" % [cam_orbited,
 			main.get_camera_transform().is_equal_approx(cam_default)])
+
+	# Phase 7b — the other three views (ORBIT -> HOOK -> TOPDOWN -> HOME/CABIN)
+	# must each be a genuinely different camera transform.
+	if tick == 1723: _press("camera_cycle")   # ORBIT -> HOOK
+	if tick == 1724: _release("camera_cycle")
+	if tick == 1726: cam_hook_xf = main.get_camera_transform()
+	if tick == 1728: _press("camera_cycle")   # HOOK -> TOPDOWN
+	if tick == 1729: _release("camera_cycle")
+	if tick == 1731: cam_topdown_xf = main.get_camera_transform()
+	if tick == 1733: _press("camera_cycle")   # TOPDOWN -> HOME (= CABIN, in_cabin=true)
+	if tick == 1734: _release("camera_cycle")
+	if tick == 1736:
+		cam_cabin_xf = main.get_camera_transform()
+		_check("camera_modes_distinct",
+			not cam_hook_xf.is_equal_approx(cam_topdown_xf)
+				and not cam_topdown_xf.is_equal_approx(cam_cabin_xf)
+				and not cam_hook_xf.is_equal_approx(cam_cabin_xf)
+				and not cam_cabin_xf.is_equal_approx(cam_default),
+			"hook=%s topdown=%s cabin=%s orbit_default=%s (all distinct)"
+			% [cam_hook_xf.origin, cam_topdown_xf.origin, cam_cabin_xf.origin,
+				cam_default.origin])
 
 	# Phase 8 — reset determinism: two identical scripted segments must match.
 	if tick == 1760:
@@ -191,7 +323,15 @@ func _physics_process(_delta: float) -> void:
 	if seg_base > 0 and tick >= seg_base:
 		_run_segment(tick - seg_base)
 
-	if tick == 2540:
+	# Phase 9 — cabin exit: climbing down must hand control back to the
+	# on-foot player and leave the cabin state cleanly.
+	if tick == 2545: _press("exit_cabin")
+	if tick == 2546: _release("exit_cabin")
+	if tick == 2705:
+		_check("cabin_exit_works", not main.is_in_cabin(),
+			"in_cabin=%s, %d ticks after pressing F" % [main.is_in_cabin(), 2705 - 2545])
+
+	if tick == 2720:
 		_finish()
 
 

@@ -2,6 +2,21 @@
   "all_ok": true,
   "checks": [
     {
+      "detail": "in_cabin=false at spawn",
+      "id": "player_spawns_on_foot",
+      "ok": true
+    },
+    {
+      "detail": "drift over 60 ticks while pressing forward into the column: 0.0000 m (pos.z=1.31)",
+      "id": "player_blocked_by_column",
+      "ok": true
+    },
+    {
+      "detail": "entered cabin after 843 approach ticks (14.1 s)",
+      "id": "cabin_entry_works",
+      "ok": true
+    },
+    {
       "detail": "rig.powered=false at first tick",
       "id": "unpowered_start",
       "ok": true
@@ -42,7 +57,7 @@
       "ok": true
     },
     {
-      "detail": "rows 721 -> 961 over 240 ticks",
+      "detail": "rows 1565 -> 1805 over 240 ticks",
       "id": "telemetry_updates",
       "ok": true
     },
@@ -52,17 +67,17 @@
       "ok": true
     },
     {
-      "detail": "HUD 451 chars, bilingual labels present",
+      "detail": "HUD 422 chars, EN/ES bilingual labels present (default pair per DEC-011)",
       "id": "hud_populated_bilingual",
       "ok": true
     },
     {
-      "detail": "enabled=true, peak applied wind 8.31 m/s",
+      "detail": "enabled=true, peak applied wind 12.11 m/s",
       "id": "wind_applied",
       "ok": true
     },
     {
-      "detail": "mean lateral offset -0.0542 m (no wind) -> 0.0511 m (wind toward +Z)",
+      "detail": "mean lateral offset -0.0542 m (no wind) -> 0.0684 m (wind toward +Z)",
       "id": "wind_changes_behaviour",
       "ok": true
     },
@@ -72,8 +87,18 @@
       "ok": true
     },
     {
+      "detail": "hook=(13.1, 9.3, 11.7) topdown=(11.6, 42.0, 10.201) cabin=(2.0, 9.3, 2.2) orbit_default=(-0.754586, 10.13525, 3.067076) (all distinct)",
+      "id": "camera_modes_distinct",
+      "ok": true
+    },
+    {
       "detail": "pass A hash da72cb6efc291dc441ff15ca4680f571 (382 ticks) vs pass B hash da72cb6efc291dc441ff15ca4680f571 (382 ticks)",
       "id": "reset_deterministic",
+      "ok": true
+    },
+    {
+      "detail": "in_cabin=false, 160 ticks after pressing F",
+      "id": "cabin_exit_works",
       "ok": true
     },
     {
@@ -84,7 +109,7 @@
   ],
   "date": "2026-07-17",
   "godot": "4.6.3-stable (official)",
-  "passed": 16,
+  "passed": 21,
   "suite": "slice001_scene_selftest",
-  "total": 16
+  "total": 21
 }
