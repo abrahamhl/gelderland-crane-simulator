@@ -18,10 +18,10 @@ updated.
 
 | Claim | Evidence |
 |---|---|
-| The original design used a cabin and ladder | `DECISIONS.md`, `DEC-006`; commit `a1a9a31` |
+| The original design used a cabin and ladder | `DECISIONS.md`, `DEC-006`; commit `f4d6975` |
 | A human domain correction changed the interaction model | `DECISIONS.md`, `DEC-014` |
 | The corrected design is a ground-level pendant | `core/machine_access.gd`, `core/settings.gd`, `core/world_builder.gd` |
-| The correction was implemented as a traceable change | Commit `c34c2ee` |
+| The correction was implemented as a traceable change | Commit `4d6a0c7` |
 | Pendulum period matches the analytical solution within 0.15% | `logs/MODULE_TEST_RESULTS.json`, check `period_matches_theory` |
 | Module verification passes | `logs/MODULE_TEST_RESULTS.json`: 14/14 |
 | End-to-end scene verification passes | `logs/SELFTEST_RESULTS.json`: 21/21 |

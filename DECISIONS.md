@@ -70,7 +70,7 @@ Use this append-only template:
 ## DEC-005 — HUD gains Spanish; default pairing becomes EN/ES, not EN/NL
 - Date: 2026-07-27
 - Status: accepted
-- Context: the user (Spanish-speaking) opened slice 001 and could not read the HUD, which shipped English/Dutch only — a defect against `01_MASTER_PROMPT_V2.md`'s explicit "English first, Spanish literal beside it, Dutch preserved in parentheses" rule, not a new feature request.
+- Context: the user (Spanish-speaking) opened slice 001 and could not read the HUD, which shipped English/Dutch only — a defect against the project's explicit "English first, Spanish literal beside it, Dutch preserved in parentheses" language rule, not a new feature request.
 - Evidence: user screenshot showing an unreadable HUD; master prompt §project mission.
 - Options considered: add Spanish as a third equal-weight language; make EN/ES the default pair (Dutch demoted to an explicit single-language mode).
 - Decision: `core/loc.gd` entries are now `[en, es, nl]`. Combined default mode returns "EN / ES". Dutch is reachable via the `L` cycle (`EN_ES -> EN -> ES -> NL`) but no longer shown by default.
@@ -83,7 +83,7 @@ Use this append-only template:
 ## DEC-006 — Fixed operator cabin (pulpit), not a cab that rides the bridge
 - Date: 2026-07-27
 - Status: **SUPERSEDED by DEC-014 (same day)** — the user, drawing on real factory lifting experience, corrected this: this overhead crane class is pendant-operated from the floor, not cabin-operated. Kept for the historical record; do not build against this decision.
-- Context: the user asked for a first-person player who walks to the machine, climbs in, and operates it — matching `01_MASTER_PROMPT_V2.md` §6 "Access and cabin entry" and §8 "cab/first-person", neither of which was implemented before this session.
+- Context: the user asked for a first-person player who walks to the machine, climbs in, and operates it — matching the original project specification, which was not implemented before this session.
 - Evidence: real factory overhead cranes are commonly operated either from a pendant control walking the floor or from a fixed elevated pulpit near one end of the runway — both keep the operator's access point static, unlike a mobile/tower crane's cab which travels with the machine.
 - Options considered: (a) a fixed pulpit with a static ladder; (b) a cab physically mounted on the moving trolley, requiring a ladder that also moves.
 - Decision: (a) — a fixed booth + ladder near the runway's `x=2` end (`AppSettings.ACCESS_POINT`, `CABIN_ANCHOR`). The CABIN camera sits at that fixed point and looks toward the current hook/load position each frame.

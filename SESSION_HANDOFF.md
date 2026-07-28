@@ -9,9 +9,10 @@
   match the current pendant-control build.
 - Reran the real Godot verification locally: module tests **14/14 PASS** and
   scene self-test **21/21 PASS**.
-- Publication audit found that the private working history contains raw
-  research material and personal commit metadata. Do not push this working
-  repository directly. Build and verify a curated public export first.
+- Publication audit found that the original private history contains raw
+  research material and personal commit metadata. This repository is the
+  resulting curated export: those materials are excluded and author email is
+  rewritten to GitHub's no-reply address.
 - Simulator scope is unchanged. After the portfolio release, the next product
   milestone remains the `SC-002+` scenario-variety work described below.
 

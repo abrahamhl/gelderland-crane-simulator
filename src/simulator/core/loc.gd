@@ -1,6 +1,6 @@
 extends Node
 ## Loc — trilingual (English / Español / Nederlands) string table for the HUD.
-## Per 01_MASTER_PROMPT_V2.md #project mission: English professional terminology
+## Project language policy: English professional terminology
 ## first, literal Spanish beside it, Dutch preserved in parentheses where useful.
 ## Modes: EN_ES (default, "English / Español"), EN, ES, NL. Cycle with L.
 ## Entries are [en, es, nl]. nl may be "" when no distinct term is useful.

@@ -19,9 +19,9 @@
   `src/simulator/scenarios/`.
 
 ### Publication safety
-- The working repository remains the private local source of truth.
-- Public release must use a curated export so research seed material, local
-  paths and private commit metadata are not published accidentally.
+- Public history was curated to retain the simulator, decisions, verification
+  and AI-governance evidence while excluding research seed material,
+  local-only recovery logs and private commit metadata.
 
 ## 0.4.1 — 2026-07-27 — Correction: pendant control, real bounce, safety radius
 Same-day follow-up after the user played 0.4.0 and corrected a factual error: this

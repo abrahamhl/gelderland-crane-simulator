@@ -34,7 +34,7 @@ The correction was not silently patched:
 
 1. `DEC-006` records the original cabin decision.
 2. `DEC-014` explicitly supersedes it and explains the operational evidence.
-3. Commit `c34c2ee` implements the corrected pendant-control model.
+3. Commit `4d6a0c7` implements the corrected pendant-control model.
 4. The complete 35-check suite verifies the resulting build.
 
 See the
@@ -109,7 +109,7 @@ Then double-click:
 | `SESSION_HANDOFF.md` | Exact continuation state |
 | `.claude/` | Agent roles, rules, skills and safety hooks used in the build |
 | `docs/AI_ORCHESTRATION_CASE_STUDY.md` | Portfolio case study with evidence map |
-| `research/` | Early career/licence research; seed material is explicitly unverified |
+| `docs/TECHNICAL_REPORT_ES.md` | Spanish technical status report |
 
 ## Honest limitations
 

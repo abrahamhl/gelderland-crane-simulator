@@ -3,8 +3,16 @@ import sys
 
 root = Path(__file__).resolve().parents[1]
 required = [
-    "CLAUDE.md", "AGENTS.md", "DECISIONS.md", "PROJECT_STATE.md",
-    ".claude/agents", ".claude/skills", ".claude/rules", "01_MASTER_PROMPT_V2.md"
+    "README.md",
+    "LICENSE",
+    "DECISIONS.md",
+    "PROJECT_STATE.md",
+    ".claude/agents",
+    ".claude/skills",
+    ".claude/rules",
+    "src/simulator/project.godot",
+    "logs/MODULE_TEST_RESULTS.json",
+    "logs/SELFTEST_RESULTS.json",
 ]
 missing = [p for p in required if not (root / p).exists()]
 if missing:
