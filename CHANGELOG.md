@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 — 2026-07-28 — Portfolio release preparation
+
+### Added
+- Public-facing README centred on verified simulation and human-in-the-loop
+  AI direction rather than unverified career claims.
+- Apache-2.0 licence.
+- `docs/AI_ORCHESTRATION_CASE_STUDY.md`, mapping the cabin-to-pendant
+  correction to decisions, implementation and tests.
+
+### Changed
+- Windows launchers now describe the current first-person and pendant controls.
+- Test launcher labels now match the verified 14 + 21 check suites.
+- The old local update archive is explicitly ignored.
+
+### Removed
+- The unused root `scenarios/` placeholder. Active scenario data lives under
+  `src/simulator/scenarios/`.
+
+### Publication safety
+- The working repository remains the private local source of truth.
+- Public release must use a curated export so research seed material, local
+  paths and private commit metadata are not published accidentally.
+
 ## 0.4.1 — 2026-07-27 — Correction: pendant control, real bounce, safety radius
 Same-day follow-up after the user played 0.4.0 and corrected a factual error: this
 overhead crane is pendant-operated from the factory floor, not from a cabin. Also

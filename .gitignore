@@ -14,6 +14,7 @@ __pycache__/
 # Builds and releases
 build/
 release/*.zip
+simulador_grua_UPDATE*.zip
 
 # Logs that are machine-generated
 logs/launcher.log

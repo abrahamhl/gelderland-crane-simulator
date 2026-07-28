@@ -20,18 +20,19 @@ echo   SIMULADOR DE GRUA PUENTE - Gelderland Operator Academy
 echo  ==========================================================
 echo.
 echo   CONTROLES:
-echo     1, 2, 3  Inspeccion previa  ^(OBLIGATORIA: la grua
-echo              arranca SIN corriente y no se movera hasta
-echo              completar las tres comprobaciones^)
-echo     W / S    Puente adelante / atras
-echo     A / D    Carro izquierda / derecha
-echo     Q / E    Subir / bajar gancho
-echo     SHIFT    Modo fino ^(velocidad reducida^)
-echo     V        Viento ON / OFF
-echo     R        Reset
-echo     C        Reset de camara
-echo     Flechas  Orbitar camara      + / -   Zoom
-echo     L        Idioma NL / EN
+echo     RATON     Mirar              WASD      Caminar
+echo     SHIFT     Correr a pie / control fino
+echo     ESPACIO   Saltar
+echo     E         Recoger el mando; bajar gancho al operar
+echo     F         Soltar el mando
+echo     1, 2, 3  Inspeccion previa obligatoria
+echo     W / S    Puente adelante / atras al operar
+echo     A / D    Carro izquierda / derecha al operar
+echo     Q / E    Subir / bajar gancho al operar
+echo     V         Viento ON / OFF     R         Reset maquina
+echo     TAB       Cambiar camara      C         Reset camara
+echo     F1        Ayuda               L         Idioma
+echo     ESC       Capturar / liberar raton
 echo.
 echo   Cierra la ventana del simulador para volver aqui.
 echo.

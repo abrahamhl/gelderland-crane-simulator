@@ -1,5 +1,20 @@
 # Session Handoff
 
+## Session S-2026-07-28-C — portfolio release preparation
+
+- Replaced the inaccurate public README with a verified simulator/AI-direction
+  presentation.
+- Added Apache-2.0 and `docs/AI_ORCHESTRATION_CASE_STUDY.md`.
+- Corrected both Windows launchers so their visible controls and test counts
+  match the current pendant-control build.
+- Reran the real Godot verification locally: module tests **14/14 PASS** and
+  scene self-test **21/21 PASS**.
+- Publication audit found that the private working history contains raw
+  research material and personal commit metadata. Do not push this working
+  repository directly. Build and verify a curated public export first.
+- Simulator scope is unchanged. After the portfolio release, the next product
+  milestone remains the `SC-002+` scenario-variety work described below.
+
 ## Session S-2026-07-27-B — same-day correction: pendant control, real bounce, safety radius, key overlay
 
 Continuation of S-2026-07-27-A (Hito 1) in the same session. The user played the build, confirmed it was "muchísimo mejor" than the previous physics-only proof, but flagged one **factual** error and several missing mechanics — all addressed below.

@@ -13,13 +13,13 @@ if not exist "%GODOT%" (
 )
 
 echo.
-echo  [1/2] Tests de fisica pura ^(7 comprobaciones^)...
+echo  [1/2] Tests de modulos y fisica ^(14 comprobaciones^)...
 echo.
 "%GODOT%" --headless --path src/simulator --script res://tests/module_tests.gd -- --out="%OUT%"
 set "R1=%ERRORLEVEL%"
 
 echo.
-echo  [2/2] Test de escena completa ^(16 comprobaciones^)...
+echo  [2/2] Test de escena completa ^(21 comprobaciones^)...
 echo.
 "%GODOT%" --headless --fixed-fps 60 --path src/simulator -- --selftest --out="%OUT%"
 set "R2=%ERRORLEVEL%"
