@@ -23,3 +23,7 @@ logs/bash_commands.log
 # OS noise
 Thumbs.db
 Desktop.ini
+
+# local-only notes
+SESSION_HANDOFF.md
+PROJECT_STATE.md
