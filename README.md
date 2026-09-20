@@ -1,5 +1,7 @@
 # Gelderland Crane Simulator
 
+[![CI](https://github.com/abrahamhl/gelderland-crane-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/abrahamhl/gelderland-crane-simulator/actions/workflows/ci.yml)
+
 A playable overhead-crane simulator built in Godot 4.6.3 with deterministic
 pendulum physics, automated verification and an auditable record of the
 human decisions used to direct an AI coding agent.
@@ -14,6 +16,7 @@ human decisions used to direct an AI coding agent.
 |---|---|
 | Pendulum validation | Measured period differs by **0.15%** from `2π√(L/g)` |
 | Automated verification | **35/35 checks pass**: 14 module + 21 scene checks |
+| Continuous verification | GitHub Actions installs the official Godot 4.6.3 Linux build (SHA512-verified) and re-runs both suites on every push |
 | Determinism | Matching trajectory hashes after resets and separate runs |
 | Safety gate | Crane remains unpowered until the three pre-use checks pass |
 | Current interaction model | Ground-level pendant control, corrected from an earlier cabin design |
