@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: "4.6.3"
+  # SHA512 of the official Godot_v4.6.3-stable_linux.x86_64.zip release asset,
+  # taken from SHA512-SUMS.txt in the same godotengine/godot-builds release.
+  GODOT_SHA512: "a035258da32b77f966a5376f9fa29c30a6adde826a85ba918e1605bd1fc9823eba7d85f1dd5e748956bd2ba72827c0025ffa11bb82aec91128c407a2e723c99c"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64-${{ env.GODOT_SHA512 }}
+
+      - name: Install official Godot ${{ env.GODOT_VERSION }} (headless-capable)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cache/godot"
+          zip="$HOME/.cache/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          if [ ! -f "$zip" ]; then
+            curl -fsSL -o "$zip" \
+              "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          fi
+          echo "${GODOT_SHA512}  ${zip}" | sha512sum -c -
+          unzip -o -q "$zip" -d "$HOME/.cache/godot/extracted"
+          bin="$HOME/.cache/godot/extracted/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$bin"
+          sudo ln -sf "$bin" /usr/local/bin/godot
+          godot --version
+
+      - name: Import project (headless)
+        run: godot --headless --path src/simulator --import
+
+      - name: Module and physics tests (14 checks)
+        run: |
+          mkdir -p logs
+          godot --headless --path src/simulator --script res://tests/module_tests.gd -- --out="$PWD/logs"
+
+      - name: Scene self-test (21 checks)
+        run: godot --headless --fixed-fps 60 --path src/simulator -- --selftest --out="$PWD/logs"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: logs/*.json
+          if-no-files-found: warn
